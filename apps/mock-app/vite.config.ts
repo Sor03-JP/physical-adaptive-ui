@@ -11,8 +11,8 @@ export default defineConfig({
     basicSsl(),
   ],
 
-  // Smartphone Access
+  // Allow LAN access (e.g., smartphones) only when explicitly enabled.
   server: {
-    host: true,
+    host: process.env.VITE_LAN === 'true',
   },
 })
