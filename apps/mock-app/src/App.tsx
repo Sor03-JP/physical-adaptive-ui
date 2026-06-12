@@ -41,7 +41,7 @@ function App() {
           <p>Your questions, answered</p>
           <ul>
             <li>
-              <a href="https://vite.dev/" target="_blank">
+              <a href="https://vite.dev/" target="_blank" rel="noreferrer noopener">
                 <img className="logo" src={viteLogo} alt="" />
                 Explore Vite
               </a>
