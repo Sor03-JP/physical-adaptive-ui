@@ -47,7 +47,7 @@ function App() {
               </a>
             </li>
             <li>
-              <a href="https://react.dev/" target="_blank">
+              <a href="https://react.dev/" target="_blank" rel="noreferrer noopener">
                 <img className="button-icon" src={reactLogo} alt="" />
                 Learn more
               </a>
