@@ -52,7 +52,7 @@ export default function App() {
           >
             歩行 (Walking)
           </button>
-          <button
+          <button type="button" aria-pressed={mode === 'running'}
             onClick={() => handleModeChange('running')}
             className={`px-4 py-1.5 rounded-md text-xs font-bold transition-all ${
               mode === 'running' ? 'bg-amber-500 text-black shadow' : 'text-slate-500 hover:text-slate-400'
