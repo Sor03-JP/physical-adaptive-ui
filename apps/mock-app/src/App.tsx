@@ -86,7 +86,7 @@ export default function App() {
 
         <div className="flex-1 flex flex-col items-center justify-center p-4 min-h-[40vh] relative">
           <button
-            onClick={() => setCount(count + 1)}
+            onClick={() => setCount((c) => c + 1)}
             className={`font-black rounded-2xl shadow-xl transition-all duration-300 active:scale-95 text-center flex items-center justify-center ${
               mode === 'static'
                 ? 'w-36 h-12 bg-slate-900 text-white text-sm hover:bg-slate-800'
