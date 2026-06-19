@@ -20,6 +20,13 @@ export default defineConfig({
             }
           });
         });
+
+        server.ws.on('custom:tap-record', (data, client) => {
+          server.ws.clients.forEach((c) => {
+            if (c !== client) c.send('custom:tap-record', data);
+          });
+        });
+
       }
     }
   ],
