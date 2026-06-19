@@ -8,8 +8,11 @@ export default function App() {
 
   useEffect(() => {
     if (import.meta.hot) {
-      import.meta.hot.on('custom:mode-change', (data: { mode: ActivityMode }) => {
-        setMode(data.mode);
+      import.meta.hot.on('custom:mode-change', (data: unknown) => {
+        const mode = (data as { mode?: unknown } | null)?.mode;
+        if (mode === 'static' || mode === 'walking' || mode === 'running') {
+          setMode(mode);
+        }
       });
     }
   }, []);
