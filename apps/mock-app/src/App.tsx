@@ -71,7 +71,7 @@ export default function App() {
             </p>
             <h2 className={`font-black tracking-tight transition-all duration-300 ${
               mode === 'static' ? 'text-2xl' :
-              mode === 'walking' ? 'text-4xl text-sky-400' : 'text-5xl text-amber-400 uppercase animate-pulse'
+              mode === 'walking' ? 'text-4xl text-sky-400' : 'text-5xl text-amber-400 uppercase animate-pulse motion-reduce:animate-none'
             }`}>
               {mode === 'static' ? 'Normal UI' : mode === 'walking' ? 'Adaptive Large' : 'Running Bold'}
             </h2>
