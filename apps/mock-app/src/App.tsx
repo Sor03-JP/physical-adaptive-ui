@@ -44,7 +44,7 @@ export default function App() {
           >
             静止 (Static)
           </button>
-          <button
+          <button type="button" aria-pressed={mode === 'walking'}
             onClick={() => handleModeChange('walking')}
             className={`px-4 py-1.5 rounded-md text-xs font-bold transition-all ${
               mode === 'walking' ? 'bg-sky-500 text-white shadow' : 'text-slate-500 hover:text-slate-400'
