@@ -36,7 +36,7 @@ export default function App() {
         </h1>
 
         <div className="inline-flex rounded-lg p-1 bg-slate-200/80 dark:bg-slate-800/80 backdrop-blur">
-          <button
+          <button type="button" aria-pressed={mode === 'static'}
             onClick={() => handleModeChange('static')}
             className={`px-4 py-1.5 rounded-md text-xs font-bold transition-all ${
               mode === 'static' ? 'bg-white text-slate-900 shadow' : 'text-slate-500 hover:text-slate-700'
