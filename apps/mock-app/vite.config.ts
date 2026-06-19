@@ -9,6 +9,19 @@ export default defineConfig({
     react(),
     tailwindcss(),
     basicSsl(),
+
+    {
+      name: 'ws-gateway',
+      configureServer(server) {
+        server.ws.on('custom:mode-change', (data, client) => {
+          server.ws.clients.forEach((c) => {
+            if (c !== client) {
+              c.send('custom:mode-change', data);
+            }
+          });
+        });
+      }
+    }
   ],
 
   // Allow LAN access (e.g., smartphones) only when explicitly enabled.

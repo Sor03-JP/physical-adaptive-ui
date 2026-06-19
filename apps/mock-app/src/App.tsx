@@ -1,122 +1,116 @@
-import { useState } from 'react'
-import reactLogo from './assets/react.svg'
-import viteLogo from './assets/vite.svg'
-import heroImg from './assets/hero.png'
-import './App.css'
+import { useState, useEffect } from 'react';
 
-function App() {
-  const [count, setCount] = useState(0)
+type ActivityMode = 'static' | 'walking' | 'running';
+
+export default function App() {
+  const [mode, setMode] = useState<ActivityMode>('static');
+  const [count, setCount] = useState<number>(0);
+
+  useEffect(() => {
+    if (import.meta.hot) {
+      import.meta.hot.on('custom:mode-change', (data: unknown) => {
+        const mode = (data as { mode?: unknown } | null)?.mode;
+        if (mode === 'static' || mode === 'walking' || mode === 'running') {
+          setMode(mode);
+        }
+      });
+    }
+  }, []);
+
+  const handleModeChange = (newMode: ActivityMode) => {
+    setMode(newMode);
+    if (import.meta.hot) {
+      import.meta.hot.send('custom:mode-change', { mode: newMode });
+    }
+  };
 
   return (
-    <>
-      <section id="center">
-        <div className="hero">
-          <img src={heroImg} className="base" width="170" height="179" alt="" />
-          <img src={reactLogo} className="framework" alt="React logo" />
-          <img src={viteLogo} className="vite" alt="Vite logo" />
-        </div>
-        <div>
-          <h1>Get started</h1>
-          <p>
-            Edit <code>src/App.tsx</code> and save to test <code>HMR</code>
-          </p>
-        </div>
-        <button
-          type="button"
-          className="counter"
-          onClick={() => setCount((count) => count + 1)}
-        >
-          Count is {count}
-        </button>
-      </section>
+    <div className={`min-h-screen p-6 flex flex-col items-center font-sans transition-colors duration-300 ${
+      mode === 'static' ? 'bg-slate-50 text-slate-950' :
+      mode === 'walking' ? 'bg-slate-900 text-slate-50' : 'bg-black text-white'
+    }`}>
 
-      <div className="ticks"></div>
+      <header className="w-full max-w-md text-center py-4 border-b border-slate-300/50 flex-none">
+        <h1 className="text-sm font-mono uppercase tracking-wider opacity-60 mb-3">
+          Adaptive UI Prototype (Sprint 2)
+        </h1>
 
-      <section id="next-steps">
-        <div id="docs">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#documentation-icon"></use>
-          </svg>
-          <h2>Documentation</h2>
-          <p>Your questions, answered</p>
-          <ul>
-            <li>
-              <a href="https://vite.dev/" target="_blank" rel="noreferrer noopener">
-                <img className="logo" src={viteLogo} alt="" />
-                Explore Vite
-              </a>
-            </li>
-            <li>
-              <a href="https://react.dev/" target="_blank" rel="noreferrer noopener">
-                <img className="button-icon" src={reactLogo} alt="" />
-                Learn more
-              </a>
-            </li>
-          </ul>
+        <div className="inline-flex rounded-lg p-1 bg-slate-200/80 dark:bg-slate-800/80 backdrop-blur">
+          <button type="button" aria-pressed={mode === 'static'}
+            onClick={() => handleModeChange('static')}
+            className={`px-4 py-1.5 rounded-md text-xs font-bold transition-all ${
+              mode === 'static' ? 'bg-white text-slate-900 shadow' : 'text-slate-500 hover:text-slate-700'
+            }`}
+          >
+            静止 (Static)
+          </button>
+          <button type="button" aria-pressed={mode === 'walking'}
+            onClick={() => handleModeChange('walking')}
+            className={`px-4 py-1.5 rounded-md text-xs font-bold transition-all ${
+              mode === 'walking' ? 'bg-sky-500 text-white shadow' : 'text-slate-500 hover:text-slate-400'
+            }`}
+          >
+            歩行 (Walking)
+          </button>
+          <button type="button" aria-pressed={mode === 'running'}
+            onClick={() => handleModeChange('running')}
+            className={`px-4 py-1.5 rounded-md text-xs font-bold transition-all ${
+              mode === 'running' ? 'bg-amber-500 text-black shadow' : 'text-slate-500 hover:text-slate-400'
+            }`}
+          >
+            走行 (Running)
+          </button>
         </div>
-        <div id="social">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#social-icon"></use>
-          </svg>
-          <h2>Connect with us</h2>
-          <p>Join the Vite community</p>
-          <ul>
-            <li>
-              <a href="https://github.com/vitejs/vite" target="_blank" rel="noreferrer noopener">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#github-icon"></use>
-                </svg>
-                GitHub
-              </a>
-            </li>
-            <li>
-              <a href="https://chat.vite.dev/" target="_blank" rel="noreferrer noopener">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#discord-icon"></use>
-                </svg>
-                Discord
-              </a>
-            </li>
-            <li>
-              <a href="https://x.com/vite_js" target="_blank" rel="noreferrer noopener">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#x-icon"></use>
-                </svg>
-                X.com
-              </a>
-            </li>
-            <li>
-              <a href="https://bsky.app/profile/vite.dev" target="_blank" rel="noreferrer noopener">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#bluesky-icon"></use>
-                </svg>
-                Bluesky
-              </a>
-            </li>
-          </ul>
-        </div>
-      </section>
+      </header>
 
-      <div className="ticks"></div>
-      <section id="spacer"></section>
-    </>
-  )
+      <main className="w-full max-w-md flex-1 flex flex-col">
+        <div className="flex-1 flex flex-col items-center justify-center text-center p-4 min-h-[40vh]">
+          <div className="space-y-3">
+            <p className="font-mono text-xs uppercase tracking-widest opacity-60">
+              Current Design State
+            </p>
+            <h2 className={`font-black tracking-tight transition-all duration-300 ${
+              mode === 'static' ? 'text-2xl' :
+              mode === 'walking' ? 'text-4xl text-sky-400' : 'text-5xl text-amber-400 uppercase animate-pulse motion-reduce:animate-none'
+            }`}>
+              {mode === 'static' ? 'Normal UI' : mode === 'walking' ? 'Adaptive Large' : 'Running Bold'}
+            </h2>
+            <p className={`leading-relaxed max-w-sm mx-auto transition-all duration-300 ${
+              mode === 'static' ? 'text-sm opacity-80' :
+              mode === 'walking' ? 'text-lg opacity-90 font-medium' : 'text-xl font-bold tracking-wide'
+            }`}>
+              身体の移動や振動による視覚的負荷を和らげるため、コンテキストに応じて文字サイズとコントラストを動的に適応させています。
+            </p>
+          </div>
+        </div>
+
+        <div className="flex-1 flex flex-col items-center justify-center p-4 min-h-[40vh] relative">
+          <button
+            onClick={() => setCount((c) => c + 1)}
+            className={`font-black rounded-2xl shadow-xl transition-all duration-300 active:scale-95 text-center flex items-center justify-center ${
+              mode === 'static'
+                ? 'w-36 h-12 bg-slate-900 text-white text-sm hover:bg-slate-800'
+                : mode === 'walking'
+                ? 'w-56 h-24 bg-sky-500 text-white text-2xl tracking-wider ring-4 ring-sky-500/30'
+                : 'w-72 h-36 bg-amber-400 text-black text-4xl tracking-widest border-4 border-white ring-8 ring-amber-400/20'
+            }`}
+          >
+            TAP : {count}
+          </button>
+
+          <span className={`absolute bottom-4 font-mono text-xs opacity-50 transition-all ${
+            mode === 'running' ? 'text-sm font-bold opacity-100 text-amber-400' : ''
+          }`}>
+            Target Safeguard: {mode === 'static' ? 'OFF' : mode === 'walking' ? 'MID (+50%)' : 'MAX (+100%)'}
+          </span>
+        </div>
+
+      </main>
+
+      <footer className="w-full max-w-md text-center py-2 border-t border-slate-300/30 font-mono text-xs opacity-40 flex-none">
+        Context Status: {mode.toUpperCase()}
+      </footer>
+
+    </div>
+  );
 }
-
-export default App
