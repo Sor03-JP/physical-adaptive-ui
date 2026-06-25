@@ -315,7 +315,7 @@ export default function App() {
                 ? 'w-36 h-12 bg-slate-900 text-white text-sm hover:bg-slate-800'
                 : mode === 'walking'
                 ? 'w-56 h-24 bg-sky-500 text-white text-2xl tracking-wider ring-4 ring-sky-500/30'
-                : 'w-72 h-36 bg-amber-400 text-white text-4xl tracking-widest border-4 border-white ring-8 ring-amber-400/20'
+                : 'w-72 h-36 bg-amber-400 text-black text-4xl tracking-widest border-4 border-white ring-8 ring-amber-400/20'
             }`}
           >
             {isExperimentRunning ? `TAP : ${count}` : '計測時間外'}
