@@ -254,7 +254,7 @@ export default function App() {
     );
   }
 
-  const handleMobileTap = (type: 'success' | 'miss', e: React.MouseEvent) => {
+  const handleMobileTap = (type: 'success' | 'miss', e: import('react').MouseEvent) => {
     if (type === 'success') {
       e.stopPropagation();
     }
