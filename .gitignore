@@ -12,3 +12,6 @@ analysis/
 
 # OS
 .DS_Store
+
+# Local research context
+/AGENTS.md
