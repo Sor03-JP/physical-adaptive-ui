@@ -1,4 +1,7 @@
 import { z } from 'zod'
+import { emptyManagement, managementSchema, assessableTasks } from './management'
+import type { Participant, Management, Failure, Retry } from './management'
+import type { LoadedCheckpoint, CheckpointDelta } from './checkpoint'
 import { surveyListSchema, validSurveyLinks } from './questionnaire'
 import type { SurveyRun } from './questionnaire'
 import { ResearchRecorder, researchLogSchema } from './research-log'
@@ -39,7 +42,9 @@ const version8TransferBase = version7TransferBase.extend({
 })
 const version9TransferBase = version8TransferBase.extend({ version: z.literal(9), questionnaires: surveyListSchema })
 const version10TransferBase = version9TransferBase.extend({ version: z.literal(10), tasks: z.array(taskRunSchema).max(100) })
-const currentTransferBase = version10TransferBase
+const currentTransferBase = version10TransferBase.extend({ version: z.literal(11), management: managementSchema,
+  recovery: z.strictObject({ phoneSavedThroughMs: z.number().finite().nonnegative(), detectedAt: z.string().datetime() }).nullable(),
+})
 const version6TransferBase = version7TransferBase.extend({
   version: z.literal(6), tasks: z.array(previousAdaptiveTaskRunSchema).max(100),
 })
@@ -75,6 +80,12 @@ function validateTransfer(value: z.infer<typeof currentTransferBase> | z.infer<t
     || !hasValidEstimateTimes(inference.estimates, value.metadata.startedAtMs, value.completion?.endedAtMs))) {
     context.addIssue({ code: 'custom', message: '推定ログの件数・設定・時刻が不整合です。' })
   }
+  if ('management' in value && (value.management.failures.some((f) => !value.tasks.some((t) => t.id === f.originalRunId && t.purpose === 'main'))
+    || value.management.retries.some((r) => {
+      const original = value.tasks.find((t) => t.id === r.originalRunId)
+      const retry = value.tasks.find((t) => t.id === r.retryRunId)
+      return !original || (retry && (retry.taskId !== original.taskId || retry.mode !== original.mode || retry.purpose !== 'main'))
+    }))) context.addIssue({ code: 'custom', message: '再実施と元課題の対応が不整合です。' })
   if ('questionnaires' in value && value.questionnaires.some((run) => run.sessionId !== value.metadata.sessionId
     || run.requestedAtMs < value.metadata.startedAtMs || !validSurveyLinks(run, value.questionnaires, value.tasks))) {
     context.addIssue({ code: 'custom', message: 'アンケートと課題・計測記録の対応が不整合です。' })
@@ -91,10 +102,17 @@ function validateTransfer(value: z.infer<typeof currentTransferBase> | z.infer<t
   }
 }
 const transferSchema = currentTransferBase.superRefine(validateTransfer)
-const readableTransferSchema = z.discriminatedUnion('version', [currentTransferBase, version9TransferBase, version8TransferBase, version7TransferBase, version6TransferBase, readableVersion5Base, version4TransferBase, version3TransferBase, version2TransferBase, legacyTransferBase])
+const readableTransferSchema = z.discriminatedUnion('version', [currentTransferBase, version10TransferBase, version9TransferBase, version8TransferBase, version7TransferBase, version6TransferBase, readableVersion5Base, version4TransferBase, version3TransferBase, version2TransferBase, legacyTransferBase])
   .superRefine(validateTransfer)
 export type Transfer = z.infer<typeof transferSchema>
 export type ReadableTransfer = z.infer<typeof readableTransferSchema>
+
+export function checkpointTransfer(saved: LoadedCheckpoint): Transfer {
+  const header = saved.header as Transfer
+  const data = readTransfer(JSON.stringify({ ...header, samples: saved.samples, inference: { ...header.inference, estimates: saved.estimates } }))
+  if (data.version !== 11) throw new Error('保存データの復旧形式が一致しません。')
+  return data
+}
 
 export class TransferCollector {
   private readonly samples: MotionSample[] = []
@@ -109,6 +127,9 @@ export class TransferCollector {
 
   private questionnaires: SurveyRun[] = []
 
+  management: Management = emptyManagement()
+  recovery: Transfer['recovery'] = null
+
   readonly research: ResearchRecorder
 
   constructor(readonly metadata: RecordingMetadata, readonly controllerTimeOriginMs: number, config: EstimationConfig | null = null) {
@@ -116,6 +137,40 @@ export class TransferCollector {
     this.estimationConfig = config ? estimationConfigSchema.parse(config) : null
   }
 
+  static restore(saved: LoadedCheckpoint, currentTimeOriginMs: number, now: number): TransferCollector {
+    const data = checkpointTransfer(saved)
+    const collector = new TransferCollector(data.metadata, data.controllerTimeOriginMs, data.inference.config)
+    collector.samples.push(...data.samples); collector.estimates.push(...data.inference.estimates)
+    collector.receipts.push(...data.receipts); collector.expectedCount = data.expectedCount
+    collector.expectedEstimateCount = data.inference.expectedCount; collector.completion = data.completion
+    collector.completeAccelerationCount = data.samples.filter(hasCompleteAcceleration).length
+    data.tasks.forEach((t) => collector.tasks.set(t.id, t)); collector.questionnaires = data.questionnaires
+    collector.management = data.management; collector.recovery = data.recovery
+    const resumedAtMs = now + currentTimeOriginMs - data.controllerTimeOriginMs
+    collector.research.restore(data.research, resumedAtMs)
+    collector.management.controllerRestarts.push({ timeOriginMs: currentTimeOriginMs, controllerAtMs: resumedAtMs })
+    return collector
+  }
+  setParticipant(participant: Participant | null) {
+    if (this.management.participant && JSON.stringify(this.management.participant) !== JSON.stringify(participant)) throw new Error('参加者情報が記録と一致しません。')
+    this.management.participant = participant
+  }
+  markFailure(failure: Failure) {
+    if (!this.tasks.has(failure.originalRunId) || this.tasks.get(failure.originalRunId)!.purpose !== 'main') throw new Error('本番の元課題が見つかりません。')
+    const existing = this.management.failures.find((f) => f.originalRunId === failure.originalRunId)
+    if (existing) throw new Error('この課題の不成立理由は記録済みです。')
+    this.management = managementSchema.parse({ ...this.management, failures: [...this.management.failures, failure] })
+  }
+  requestRetry(retry: Retry) {
+    const original = this.tasks.get(retry.originalRunId)
+    if (!original || !['complete', 'aborted'].includes(original.phase)) throw new Error('元課題を終了・中断してから再実施してください。')
+    this.management = managementSchema.parse({ ...this.management, retries: [...this.management.retries, retry] })
+  }
+  get assessableTaskRuns(): TaskRun[] { return assessableTasks(this.taskRuns, this.management) }
+  checkpoint(sampleStart: number, estimateStart: number): CheckpointDelta {
+    return { sessionId: this.metadata.sessionId, header: this.snapshot(false), sampleStart, estimateStart,
+      samples: this.samples.slice(sampleStart), estimates: this.estimates.slice(estimateStart) }
+  }
   get count(): number { return this.samples.length }
   get estimateCount(): number { return this.estimates.length }
   get taskRuns(): TaskRun[] { return structuredClone([...this.tasks.values()]) }
@@ -160,7 +215,8 @@ export class TransferCollector {
   updateStatus(count: number, completion: Completion | null, estimateCount = 0): void {
     this.expectedCount = Math.max(this.expectedCount, count)
     this.expectedEstimateCount = Math.max(this.expectedEstimateCount, estimateCount)
-    if (completion !== null) this.completion = completion
+    if (completion !== null) this.completion = completion.stopReason === 'recovered-after-reload'
+      ? { ...completion, endedAtMs: Math.max(completion.endedAtMs, this.samples.at(-1)?.receivedAtMs ?? 0, this.estimates.at(-1)?.stabilizedAtMs ?? 0) } : completion
   }
 
   receiveEstimates(startIndex: number, estimates: MotionEstimate[]): boolean {
@@ -194,7 +250,7 @@ export class TransferCollector {
 
   private snapshot(includeSamples: boolean): Transfer {
     return {
-      format: 'physical-adaptive-motion-transfer', version: 10,
+      format: 'physical-adaptive-motion-transfer', version: 11, management: structuredClone(this.management), recovery: this.recovery,
       metadata: this.metadata, completion: this.completion, samples: includeSamples ? this.samples.slice() : [],
       controllerTimeOriginMs: this.controllerTimeOriginMs, expectedCount: this.expectedCount,
       complete: this.complete, receipts: this.receipts.slice(),
