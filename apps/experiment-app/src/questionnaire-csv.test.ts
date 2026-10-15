@@ -63,3 +63,15 @@ it('preserves Japanese free text, commas, quotes and line breaks as one CSV fiel
   expect(rows[1]![header!.indexOf('answer_label')]).toBe(comment)
   expect(rows[0]![header!.indexOf('answer_status')]).toBe('cannot-judge')
 })
+
+it('includes the participant and allocation in every row without assigning them to legacy data', () => {
+  const surveys = [run('normal', { q1: 4 })]
+  const [header, ...rows] = records(writeQuestionnaireCsv(surveys, { participantId: 'p03', group: 'G2', rosterId: 'roster' }))
+  for (const row of rows) {
+    expect(row[header!.indexOf('participant_id')]).toBe('p03')
+    expect(row[header!.indexOf('assignment_group')]).toBe('G2')
+    expect(row[header!.indexOf('roster_id')]).toBe('roster')
+  }
+  const old = records(writeQuestionnaireCsv(surveys))
+  expect(old[1]![header!.indexOf('participant_id')]).toBe('')
+})

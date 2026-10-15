@@ -1,15 +1,16 @@
 import { surveyListSchema } from './questionnaire'
+import type { Participant } from './management'
 import type { SurveyRun } from './questionnaire'
 
 const columns = [
-  'session_id', 'survey_id', 'condition', 'survey_status', 'linked_id_kind', 'linked_ids',
+  'participant_id', 'assignment_group', 'roster_id', 'session_id', 'survey_id', 'condition', 'survey_status', 'linked_id_kind', 'linked_ids',
   'instrument_version', 'question_id', 'question', 'answer_status', 'answer_value', 'answer_label',
   'requested_at_phone_ms', 'shown_at_phone_ms', 'submitted_at_phone_ms',
 ]
 const cell = (value: string | number | null) => `"${String(value ?? '').replaceAll('"', '""')}"`
 
 /** One row per applicable question. Original answers are preserved without scoring or imputation. */
-export function writeQuestionnaireCsv(runs: SurveyRun[]): string {
+export function writeQuestionnaireCsv(runs: SurveyRun[], participant: Participant | null = null): string {
   const rows: (string | number | null)[][] = [columns]
   for (const run of surveyListSchema.parse(runs)) {
     for (const item of run.items) {
@@ -19,7 +20,7 @@ export function writeQuestionnaireCsv(runs: SurveyRun[]): string {
         : value === 'cannot-judge' && item.id !== 'comment' ? 'cannot-judge' : 'answered'
       const label = value === undefined ? '' : item.id === 'comment' ? String(value)
         : item.choices.find((choice) => choice.value === value)!.label
-      rows.push([run.sessionId, run.id, run.target, run.phase,
+      rows.push([participant?.participantId ?? '', participant?.group ?? '', participant?.rosterId ?? '', run.sessionId, run.id, run.target, run.phase,
         run.target === 'final' ? 'condition_survey' : 'task_run', JSON.stringify(run.linkedIds),
         run.instrumentVersion, item.id, item.text, status, value ?? '', label,
         run.requestedAtMs, run.shownAtMs, run.submittedAtMs])

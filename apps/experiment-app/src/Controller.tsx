@@ -1,6 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
 import { atom, useAtom } from 'jotai'
 import SavedRecording from './SavedRecording'
+import ParticipantManager from './ParticipantManager'
+import StoragePanel from './StoragePanel'
+import { useCheckpoint } from './useCheckpoint'
+import { nextStep, emptyManagement } from './management'
+import type { Participant, Failure } from './management'
 import { downloadText } from './download'
 import { writeQuestionnaireCsv } from './questionnaire-csv'
 import FeaturePreview from './FeaturePreview'
@@ -17,7 +22,7 @@ import { useMeasurementTransport } from './transport'
 import { MAX_SAMPLES } from './recording'
 import { TransferCollector, writeTransfer } from './transfer'
 
-type Command = Extract<Message, { type: 'start' | 'stop' | 'clear' | 'task-start' | 'task-begin' | 'task-answer' | 'survey-open' }>
+type Command = Extract<Message, { type: 'start' | 'stop' | 'clear' | 'task-start' | 'task-begin' | 'task-answer' | 'survey-open' | 'task-abort' }>
 const panelAtom = atom({ phone: null as PhoneStatus | null, received: 0, estimates: 0, valid: 0, complete: false, pending: '' })
 const number = (value: number | null | undefined) => value == null ? '—' : value.toFixed(3)
 const seconds = (value: number) => (value / 1000).toFixed(1)
@@ -34,20 +39,36 @@ export default function Controller({ identity }: { identity: Identity }) {
   const phone = useRef<PhoneStatus | null>(null)
   const command = useRef<Command | null>(null)
   const verified = useRef(false)
+  const clearing = useRef(false)
+  const historySession = useRef('')
+  const managementSaving = useRef(false)
+  const [selectedParticipant, setSelectedParticipant] = useState<Participant | null>(null)
+  const [exports, setExports] = useState({ json: false, csv: false })
+  function controllerNow() { return performance.now() + performance.timeOrigin - (collector.current?.controllerTimeOriginMs ?? performance.timeOrigin) }
+  const storage = useCheckpoint('controller', identity.room, {
+    snapshot: (sampleStart, estimateStart) => collector.current?.checkpoint(sampleStart, estimateStart) ?? null,
+    restore: (saved) => {
+      collector.current = TransferCollector.restore(saved, performance.timeOrigin, performance.now())
+      setSelectedParticipant(collector.current.management.participant)
+      if (!collector.current.recovery) collector.current.research.begin(collector.current.research.hasStartCalibration ? 'manual' : 'start', controllerNow())
+      verified.current = false; refresh()
+    },
+  })
 
-  function controllerNow() { return performance.now() }
   function refresh() {
     const current = collector.current
-    if (current && phone.current?.metadata?.sessionId === current.metadata.sessionId && phone.current.completion && !current.research.busy
+    if (current && phone.current?.metadata?.sessionId === current.metadata.sessionId && phone.current.completion && !current.recovery && !current.research.busy
       && !current.research.snapshot().rounds.some((r) => r.purpose === 'end')) {
       current.research.begin('end', controllerNow()); verified.current = false
     }
     setPanel({ phone: phone.current, received: current?.count ?? 0,
       estimates: current?.estimateCount ?? 0,
       valid: current?.summary().completeAccelerationCount ?? 0,
-      complete: current?.complete ?? false, pending: command.current?.type ?? '' })
+      complete: current?.complete ?? false, pending: command.current?.type ?? (managementSaving.current ? 'saving' : '') })
   }
   function receive(packet: Message, receivedAtMs: number) {
+    if (!storage.ready) return
+    receivedAtMs += performance.timeOrigin - (collector.current?.controllerTimeOriginMs ?? performance.timeOrigin)
     if (packet.type === 'clock-reply') {
       if (collector.current?.research.receive(packet, receivedAtMs)) verified.current = false
     } else if (packet.type === 'status') {
@@ -59,8 +80,11 @@ export default function Controller({ identity }: { identity: Identity }) {
         }
         if (!collector.current) {
           collector.current = new TransferCollector(metadata, performance.timeOrigin, packet.estimationConfig)
-          collector.current.research.begin('start', receivedAtMs)
+          if (!packet.recovered) collector.current.research.begin('start', receivedAtMs)
         }
+        collector.current.setParticipant(packet.participant)
+        if (packet.recovered) collector.current.recovery ??= { phoneSavedThroughMs: packet.recoverySavedThroughMs!, detectedAt: new Date().toISOString() }
+        packet.recoveredTasks.forEach((task) => collector.current!.updateTask(task))
         collector.current.updateStatus(packet.count, packet.completion, packet.estimateCount)
         if (collector.current.updateTask(packet.taskRun)) verified.current = false
         if (collector.current.updateQuestionnaires(packet.questionnaires)) verified.current = false
@@ -68,16 +92,28 @@ export default function Controller({ identity }: { identity: Identity }) {
       const pending = command.current
       if (pending?.type === 'start' && metadata?.sessionId === pending.sessionId) command.current = null
       if (pending?.type === 'stop' && metadata?.sessionId === pending.sessionId && packet.completion) command.current = null
+      if (pending?.type === 'task-abort' && packet.taskRun?.id === pending.runId && packet.taskRun.phase === 'aborted') command.current = null
       if (pending?.type === 'survey-open' && packet.questionnaires.some((r) => r.id === pending.surveyId)) command.current = null
       if (pending?.type === 'task-start' && packet.taskRun?.id === pending.runId) command.current = null
       if (pending?.type === 'task-begin' && packet.taskRun?.id === pending.runId && packet.taskRun.phase !== 'briefing') command.current = null
       if (pending?.type === 'task-answer' && packet.taskRun?.id === pending.runId && packet.taskRun.phase !== 'waiting-stop') command.current = null
-      if (pending?.type === 'clear' && metadata === null) { collector.current = null; command.current = null; verified.current = false }
+      if (pending?.type === 'clear' && metadata === null && !clearing.current) {
+        clearing.current = true
+        void storage.archive().then(() => {
+          collector.current = null; command.current = null; verified.current = false
+          setSelectedParticipant(null); setExports({ json: false, csv: false }); refresh()
+        }).catch(() => {
+          command.current = null; setError('保存済み記録の整理に失敗しました。現在の記録は保持しています。'); refresh()
+        }).finally(() => { clearing.current = false })
+      }
       if (packet.error) {
         setError(packet.error)
         if (pending?.type === 'start' && metadata === null) command.current = null
-        if (pending?.type === 'survey-open' || pending?.type === 'task-start' || pending?.type === 'task-begin' || pending?.type === 'task-answer') command.current = null
+        if (pending?.type === 'task-abort' || pending?.type === 'survey-open' || pending?.type === 'task-start' || pending?.type === 'task-begin' || pending?.type === 'task-answer') command.current = null
       }
+    } else if (packet.type === 'task-history' && packet.sessionId === collector.current?.metadata.sessionId) {
+      packet.tasks.forEach((task) => { if (collector.current!.updateTask(task)) verified.current = false })
+      historySession.current = packet.sessionId
     } else if (packet.type === 'batch' && packet.sessionId === collector.current?.metadata.sessionId) {
       const current = collector.current
       const accepted = current.receive(packet.startIndex, packet.samples, receivedAtMs)
@@ -99,6 +135,9 @@ export default function Controller({ identity }: { identity: Identity }) {
         if (current.research.busy || probe) verified.current = false
         refresh()
       }
+      if (current && status?.metadata?.sessionId === current.metadata.sessionId && historySession.current !== current.metadata.sessionId) {
+        send({ type: 'pull-tasks', sessionId: current.metadata.sessionId })
+      }
       if (current && status?.metadata?.sessionId === current.metadata.sessionId && current.count < status.count) {
         send({ type: 'pull', sessionId: current.metadata.sessionId, startIndex: current.count })
       }
@@ -114,9 +153,11 @@ export default function Controller({ identity }: { identity: Identity }) {
   }, [send])
 
   function start() {
-    if (collector.current || command.current || !connected || !presence.sensor || !phone.current?.ready) return
+    if (!selectedParticipant || !storage.ready || storage.error || !phone.current?.storage.ready || phone.current.storage.error
+      || collector.current || command.current || !connected || !presence.sensor || !phone.current?.ready) return
     verified.current = false; setError(''); setMessage('')
-    command.current = { type: 'start', sessionId: crypto.randomUUID() }
+    setExports({ json: false, csv: false })
+    command.current = { type: 'start', sessionId: crypto.randomUUID(), participant: selectedParticipant }
     send(command.current); refresh()
   }
   function stop() {
@@ -142,7 +183,10 @@ export default function Controller({ identity }: { identity: Identity }) {
   }
   function openSurvey(target: SurveyTarget, linkedIds: string[]) {
     const current = collector.current
-    if (!current || command.current || !connected || !presence.sensor || reading || current.research.busy) return
+    if (!current || command.current || !connected || !presence.sensor || reading || current.research.busy || current.recovery) return
+    const participant = current.management.participant
+    const step = participant ? nextStep(participant, current.taskRuns, current.surveyRuns, current.management) : null
+    if (step && (step.kind !== 'survey' || step.target !== target)) { setError('割当済みの順序に従ってアンケートを実施してください。'); return }
     setError(''); verified.current = false
     recordResearch('observation', 'stationary')
     command.current = { type: 'survey-open', sessionId: current.metadata.sessionId, surveyId: crypto.randomUUID(), target, linkedIds }
@@ -151,9 +195,52 @@ export default function Controller({ identity }: { identity: Identity }) {
   function startTask(taskId: TaskId, mode: ExperimentMode) {
     const current = collector.current
     if (!current || command.current || !phone.current?.metadata || phone.current.completion || !connected || !presence.sensor) return
+    if (!storage.savedAt || storage.error || !phone.current.storage.savedAt || phone.current.storage.error
+      || !current.research.hasStartCalibration || current.research.busy || current.recovery || current.surveyRuns.some((r) => r.phase === 'answering')) return
+    const participant = current.management.participant
+    if (participant) {
+      const step = nextStep(participant, current.taskRuns, current.surveyRuns, current.management)
+      if (step.kind !== 'task' || step.taskId !== taskId || step.mode !== mode) { setError('割当済みの次の課題を実施してください。'); return }
+      if (current.taskRuns.some((t) => t.purpose === 'main' && t.mode === mode && t.taskId === taskId)) { setError('同じ課題の再実施は、技術的不成立・再実施欄で記録してください。'); return }
+    }
     setError(''); verified.current = false
     command.current = { type: 'task-start', sessionId: current.metadata.sessionId, runId: crypto.randomUUID(), taskId, mode }
     send(command.current); refresh()
+  }
+  function markFailure(failure: Omit<Failure, 'recordedAtControllerMs'>) {
+    const current = collector.current
+    if (!current || command.current || current.recovery) return
+    try {
+      current.markFailure({ ...failure, recordedAtControllerMs: controllerNow() }); verified.current = false
+      const task = current.taskRuns.find((t) => t.id === failure.originalRunId)!
+      if (!['complete', 'aborted'].includes(task.phase)) {
+        command.current = { type: 'task-abort', sessionId: current.metadata.sessionId, runId: task.id, reason: failure.reason }
+        send(command.current)
+      }
+      setError(''); refresh(); void storage.flush()
+    } catch (cause) { setError(cause instanceof Error ? cause.message : '不成立を記録できませんでした。') }
+  }
+  async function retryTask(originalRunId: string) {
+    const current = collector.current
+    if (!current || command.current || managementSaving.current || unavailable || !active || current.recovery || current.research.busy
+      || historySession.current !== current.metadata.sessionId
+      || !current.research.hasStartCalibration || storage.error || !storage.savedAt || phone.current?.storage.error
+      || !phone.current?.storage.savedAt || current.taskRuns.some((t) => !['complete', 'aborted'].includes(t.phase))) return
+    try {
+      const original = current.taskRuns.find((t) => t.id === originalRunId)!
+      const failure = current.management.failures.find((f) => f.originalRunId === originalRunId)
+      if (!failure || current.surveyRuns.some((r) => r.phase === 'answering')) throw new Error('不成立理由を記録し、現在の回答を終了してください。')
+      const existing = current.management.retries.find((r) => r.originalRunId === originalRunId)
+      if (existing && current.taskRuns.some((t) => t.id === existing.retryRunId)) throw new Error('この課題は再実施済みです。')
+      const runId = existing?.retryRunId ?? crypto.randomUUID()
+      if (!existing) current.requestRetry({ ...failure, retryRunId: runId, consentConfirmed: true, requestedAtControllerMs: controllerNow() })
+      managementSaving.current = true; verified.current = false; refresh()
+      if (!await storage.flush()) throw new Error('再実施の対応を保存できませんでした。保存エラーを解消してから、記録済みの要求を送信してください。')
+      command.current = { type: 'task-start', sessionId: current.metadata.sessionId, runId, taskId: original.taskId as TaskId, mode: original.mode }
+      setError(''); send(command.current)
+
+    } catch (cause) { setError(cause instanceof Error ? cause.message : '再実施できませんでした。') }
+    finally { managementSaving.current = false; refresh() }
   }
   function beginTask() {
     const run = phone.current?.taskRun
@@ -169,7 +256,7 @@ export default function Controller({ identity }: { identity: Identity }) {
     send(command.current); refresh()
   }
   function clear() {
-    if (!collector.current?.complete || command.current || collector.current.research.busy || collector.current.surveyRuns.some((r) => r.phase === 'answering')) return
+    if ((!collector.current?.complete && !collector.current?.recovery) || command.current || collector.current!.research.busy || (!collector.current!.recovery && collector.current!.surveyRuns.some((r) => r.phase === 'answering'))) return
     if (!verified.current && !window.confirm('現在の記録を終了し、次の計測へ進みます。必要なJSONを保存しましたか？')) return
     command.current = { type: 'clear', sessionId: collector.current.metadata.sessionId }
     send(command.current); refresh(); setMessage('')
@@ -178,7 +265,8 @@ export default function Controller({ identity }: { identity: Identity }) {
     if (!collector.current || collector.current.research.busy) return
     try {
       const data = collector.current.export()
-      downloadText(writeTransfer(data), `motion-${data.metadata.sessionId}${data.complete ? '' : '-partial'}.json`, 'application/json')
+      downloadText(writeTransfer(data), `${data.management.participant?.participantId ?? 'unassigned'}_${data.metadata.sessionId}${data.complete && !data.recovery ? '' : '-partial'}.json`, 'application/json')
+      setExports((s) => ({ ...s, json: true }))
       setError(''); setMessage(data.complete ? `JSON出力を開始しました。アンケートは${data.questionnaires.filter((r) => r.phase === 'submitted').length}件回答済み、${data.questionnaires.filter((r) => r.phase === 'answering').length}件回答途中です。保存ファイルをPCで読み戻して確認してください。`
         : '途中データを出力しました。停止確認・全件受信が完了したファイルではありません。')
     } catch { setError('出力できませんでした。記録は保持しています。') }
@@ -188,7 +276,8 @@ export default function Controller({ identity }: { identity: Identity }) {
     const current = collector.current
     if (!current || reading || !current.surveyRuns.length) return
     try {
-      downloadText(writeQuestionnaireCsv(current.surveyRuns), `questionnaires-${current.metadata.sessionId}.csv`, 'text/csv;charset=utf-8')
+      downloadText(writeQuestionnaireCsv(current.surveyRuns, current.management.participant), `${current.management.participant?.participantId ?? 'unassigned'}_${current.metadata.sessionId}_questionnaires.csv`, 'text/csv;charset=utf-8')
+      setExports((s) => ({ ...s, csv: true }))
       setError(''); setMessage('アンケートCSVの出力を開始しました。1設問1行で、回答途中も含みます。センサーを含む全記録はJSONで保存してください。')
     } catch { setError('アンケートCSVを出力できませんでした。記録は保持しています。') }
   }
@@ -198,7 +287,18 @@ export default function Controller({ identity }: { identity: Identity }) {
   const estimate = status?.latestEstimate
   const active = status?.metadata != null && status.completion === null
   const unavailable = !connected || !presence.sensor
+  const management = collector.current?.management ?? emptyManagement()
+  const participant = management.participant
+  const step = participant && collector.current ? nextStep(participant, collector.current.taskRuns, collector.current.surveyRuns, management) : null
+  const activeTask = step?.kind === 'active' ? collector.current?.taskRuns.find((t) => t.id === step.runId && t.purpose === 'main') : null
+  const planned = step?.kind === 'task' ? step : activeTask ? { taskId: activeTask.taskId as TaskId, mode: activeTask.mode } : null
   return <>
+    <ParticipantManager participant={participant} selected={selectedParticipant} onSelect={setSelectedParticipant}
+      locked={!!collector.current || !!panel.pending} management={management} tasks={collector.current?.taskRuns ?? []} surveys={collector.current?.surveyRuns ?? []}
+      pending={!!panel.pending || unavailable || !!collector.current?.recovery || historySession.current !== collector.current?.metadata.sessionId} onFailure={markFailure} onRetry={retryTask}
+      jsonExported={exports.json} csvExported={exports.csv} verified={verified.current} />
+    <StoragePanel state={storage} phone={status?.storage ?? null} journal={storage.journal} />
+    {collector.current?.recovery && <p className="notice">iPhone更新による中断記録です。保存済みデータを回収し、JSON出力・読戻し一致を確認してください。途中課題の自動再開は行いません。</p>}
     <section>
       <h2>接続・準備確認</h2>
       <p role="status">サーバー：{connected ? '接続済み' : '切断／開発サーバー未接続'} ／ iPhone：{presence.sensor && connected ? '接続済み' : '未接続'}</p>
@@ -214,7 +314,7 @@ export default function Controller({ identity }: { identity: Identity }) {
       <h2>PCから記録</h2>
       <p className="status" role="status">{panel.pending ? `操作の応答待ち：${panel.pending}` : active ? '記録中' : panel.complete ? '停止・全件受信済み' : collector.current ? '停止確認または転送待ち' : '開始前'}</p>
       <div className="controls">
-        <button className="primary" disabled={unavailable || !status?.ready || !!collector.current || !!panel.pending || reading} onClick={start}>記録開始</button>
+        <button className="primary" disabled={!selectedParticipant || !storage.ready || !!storage.error || !status?.storage.ready || !!status?.storage.error || unavailable || !status?.ready || !!collector.current || !!panel.pending || reading} onClick={start}>記録開始</button>
         <button disabled={!active || !!panel.pending} onClick={stop}>記録停止</button>
       </div>
       <dl>
@@ -233,18 +333,18 @@ export default function Controller({ identity }: { identity: Identity }) {
       <p><small>iPhoneの取得時刻とPCの受信時刻を別々に保存します。元の時刻と時刻合わせの通信記録を保持します。補正値は別途記録し、生データの時刻は書き換えません。</small></p>
       <div className="controls">
         <button disabled={!collector.current || reading || collector.current.research.busy} onClick={download}>{panel.complete ? 'JSONをPCに出力' : '途中データをPCに出力'}</button>
-        <button disabled={!panel.complete || !!panel.pending || reading || collector.current?.research.busy || collector.current?.surveyRuns.some((r) => r.phase === 'answering')} onClick={clear}>記録を保管して次の計測へ</button>
+        <button disabled={(!panel.complete && !collector.current?.recovery) || !!panel.pending || reading || collector.current?.research.busy || (!collector.current?.recovery && collector.current?.surveyRuns.some((r) => r.phase === 'answering'))} onClick={clear}>記録を保管して次の計測へ</button>
       </div>
       {message && <p className="success" role="status">{message}</p>}
     </section>
     <ObservationPanel log={collector.current?.research.snapshot() ?? null} active={active && !!collector.current}
       busy={collector.current?.research.busy ?? false} disabled={!collector.current || unavailable || (status?.taskRun != null && !['briefing', 'complete', 'aborted'].includes(status.taskRun.phase))}
       hidden={hideInference} onHidden={setHideInference} onRecord={recordResearch} onCalibrate={calibrate} />
-    <TaskController hideInference={hideInference} run={status?.taskRun ?? null} count={collector.current?.taskCount ?? 0}
+    <TaskController planned={planned} managed={!!participant} startAllowed={!participant || step?.kind === 'task'} hideInference={hideInference} run={status?.taskRun ?? null} count={collector.current?.taskCount ?? 0}
       elapsedSeconds={status?.taskRun?.startedAtMs != null ? ((status.metadata?.startedAtMs ?? 0) + status.elapsedMs - status.taskRun.startedAtMs) / 1000 : 0}
-      disabled={unavailable || !active || reading || !collector.current?.research.hasStartCalibration || collector.current.research.busy || collector.current.surveyRuns.some((r) => r.phase === 'answering')} pending={!!panel.pending} onStart={startTask} onBegin={beginTask} onConfirmStopped={confirmStopped} />
-    <QuestionnaireController runs={collector.current?.surveyRuns ?? []} tasks={collector.current?.taskRuns ?? []}
-      disabled={!collector.current || unavailable || reading || !!panel.pending || (collector.current?.research.busy ?? false)
+      disabled={unavailable || !active || reading || !!storage.error || !storage.savedAt || !status?.storage.savedAt || !!status?.storage.error || !collector.current?.research.hasStartCalibration || collector.current.research.busy || collector.current.surveyRuns.some((r) => r.phase === 'answering')} pending={!!panel.pending} onStart={startTask} onBegin={beginTask} onConfirmStopped={confirmStopped} />
+    <QuestionnaireController allowedTarget={participant ? step?.kind === 'survey' ? step.target : null : undefined} runs={collector.current?.surveyRuns ?? []} tasks={collector.current?.assessableTaskRuns ?? []}
+      disabled={!collector.current || !!collector.current.recovery || unavailable || reading || !!panel.pending || (collector.current?.research.busy ?? false)
         || (status?.taskRun != null && !['complete', 'aborted'].includes(status.taskRun.phase))}
       onOpen={openSurvey} onExport={downloadQuestionnaires} />
     {!hideInference && <>
