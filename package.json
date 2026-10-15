@@ -1,0 +1,20 @@
+{
+  "name": "physical-adaptive-ui",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "npm run dev --workspace mock-app",
+    "check": "npm run check --workspaces --if-present",
+    "build": "npm run check && npm run build --workspaces --if-present",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "typescript": "6.0.3",
+    "vitest": "4.1.11"
+  }
+}
