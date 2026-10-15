@@ -3,6 +3,8 @@ import { atom, useAtom } from 'jotai'
 import SavedRecording from './SavedRecording'
 import FeaturePreview from './FeaturePreview'
 import TaskController from './TaskController'
+import ObservationPanel from './ObservationPanel'
+import type { ObservationKind, ResearchEvent } from './research-log'
 import { stateLabels } from './adaptation'
 import type { ExperimentMode } from './adaptation'
 import type { TaskId } from './tasks'
@@ -23,21 +25,28 @@ export default function Controller({ identity }: { identity: Identity }) {
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
   const [reading, setReading] = useState(false)
-  const hideInference = false
+  const [hideInference, setHideInference] = useState(true)
   const collector = useRef<TransferCollector | null>(null)
   const phone = useRef<PhoneStatus | null>(null)
   const command = useRef<Command | null>(null)
   const verified = useRef(false)
 
+  function controllerNow() { return performance.now() }
   function refresh() {
     const current = collector.current
+    if (current && phone.current?.metadata?.sessionId === current.metadata.sessionId && phone.current.completion && !current.research.busy
+      && !current.research.snapshot().rounds.some((r) => r.purpose === 'end')) {
+      current.research.begin('end', controllerNow()); verified.current = false
+    }
     setPanel({ phone: phone.current, received: current?.count ?? 0,
       estimates: current?.estimateCount ?? 0,
       valid: current?.summary().completeAccelerationCount ?? 0,
       complete: current?.complete ?? false, pending: command.current?.type ?? '' })
   }
   function receive(packet: Message, receivedAtMs: number) {
-    if (packet.type === 'status') {
+    if (packet.type === 'clock-reply') {
+      if (collector.current?.research.receive(packet, receivedAtMs)) verified.current = false
+    } else if (packet.type === 'status') {
       phone.current = packet
       const metadata = packet.metadata
       if (metadata) {
@@ -46,6 +55,7 @@ export default function Controller({ identity }: { identity: Identity }) {
         }
         if (!collector.current) {
           collector.current = new TransferCollector(metadata, performance.timeOrigin, packet.estimationConfig)
+          collector.current.research.begin('start', receivedAtMs)
         }
         collector.current.updateStatus(packet.count, packet.completion, packet.estimateCount)
         if (collector.current.updateTask(packet.taskRun)) verified.current = false
@@ -77,6 +87,12 @@ export default function Controller({ identity }: { identity: Identity }) {
       if (command.current) send(command.current)
       const current = collector.current
       const status = phone.current
+      if (current) {
+        const probe = current.research.poll(controllerNow())
+        if (probe) send(probe)
+        if (current.research.busy || probe) verified.current = false
+        refresh()
+      }
       if (current && status?.metadata?.sessionId === current.metadata.sessionId && current.count < status.count) {
         send({ type: 'pull', sessionId: current.metadata.sessionId, startIndex: current.count })
       }
@@ -102,6 +118,21 @@ export default function Controller({ identity }: { identity: Identity }) {
     command.current = { type: 'stop', sessionId: collector.current.metadata.sessionId }
     send(command.current); refresh()
   }
+  function recordResearch(kind: ResearchEvent['kind'], value: ObservationKind) {
+    const current = collector.current
+    if (!current || phone.current?.completion || phone.current?.metadata?.sessionId !== current.metadata.sessionId) return
+    try {
+      const run = phone.current.taskRun
+      current.research.record({ kind, value, controllerAtMs: controllerNow(), taskRunId: run?.id ?? null, reportedPhase: run?.phase ?? null })
+      verified.current = false; refresh()
+    } catch (cause) { setError(cause instanceof Error ? cause.message : '観察を記録できませんでした。') }
+  }
+  function calibrate() {
+    const current = collector.current
+    if (!current || current.research.busy || !connected || !presence.sensor) return
+    current.research.begin(phone.current?.completion ? 'end' : current.research.hasStartCalibration ? 'manual' : 'start', controllerNow())
+    verified.current = false; refresh()
+  }
   function startTask(taskId: TaskId, mode: ExperimentMode) {
     const current = collector.current
     if (!current || command.current || !phone.current?.metadata || phone.current.completion || !connected || !presence.sensor) return
@@ -111,24 +142,25 @@ export default function Controller({ identity }: { identity: Identity }) {
   }
   function beginTask() {
     const run = phone.current?.taskRun
-    if (!run || run.phase !== 'briefing' || run.briefingShownAtMs === null || command.current) return
+    if (!run || run.phase !== 'briefing' || run.briefingShownAtMs === null || command.current || collector.current?.research.busy) return
     command.current = { type: 'task-begin', sessionId: run.sessionId, runId: run.id }
     send(command.current); refresh()
   }
   function confirmStopped() {
     const run = phone.current?.taskRun
     if (!run || run.phase !== 'waiting-stop' || command.current) return
+    recordResearch('observation', 'stationary')
     command.current = { type: 'task-answer', sessionId: run.sessionId, runId: run.id }
     send(command.current); refresh()
   }
   function clear() {
-    if (!collector.current?.complete || command.current) return
+    if (!collector.current?.complete || command.current || collector.current.research.busy) return
     if (!verified.current && !window.confirm('現在の記録を終了し、次の計測へ進みます。必要なJSONを保存しましたか？')) return
     command.current = { type: 'clear', sessionId: collector.current.metadata.sessionId }
     send(command.current); refresh(); setMessage('')
   }
   function download() {
-    if (!collector.current) return
+    if (!collector.current || collector.current.research.busy) return
     try {
       const data = collector.current.export()
       const blob = new Blob([writeTransfer(data)], { type: 'application/json' })
@@ -175,16 +207,19 @@ export default function Controller({ identity }: { identity: Identity }) {
         <tr><th>回転速度<br /><small>°/s</small></th><td>{number(latest?.rotationRate?.alpha)}</td><td>{number(latest?.rotationRate?.beta)}</td><td>{number(latest?.rotationRate?.gamma)}</td></tr>
       </tbody></table>}
       <p><small>「—」は欠損・未受信。生データは全件記録し、画面・通信はまとめて更新します。上限{MAX_SAMPLES}件で自動停止します。</small></p>
-      <p><small>iPhoneの取得時刻とPCの受信時刻を別々に保存します。両端末の時計はまだ同期していません。生データの時刻は書き換えません。</small></p>
+      <p><small>iPhoneの取得時刻とPCの受信時刻を別々に保存します。元の時刻と時刻合わせの通信記録を保持します。補正値は別途記録し、生データの時刻は書き換えません。</small></p>
       <div className="controls">
-        <button disabled={!collector.current || reading} onClick={download}>{panel.complete ? 'JSONをPCに出力' : '途中データをPCに出力'}</button>
-        <button disabled={!panel.complete || !!panel.pending || reading} onClick={clear}>記録を保管して次の計測へ</button>
+        <button disabled={!collector.current || reading || collector.current.research.busy} onClick={download}>{panel.complete ? 'JSONをPCに出力' : '途中データをPCに出力'}</button>
+        <button disabled={!panel.complete || !!panel.pending || reading || collector.current?.research.busy} onClick={clear}>記録を保管して次の計測へ</button>
       </div>
       {message && <p className="success" role="status">{message}</p>}
     </section>
+    <ObservationPanel log={collector.current?.research.snapshot() ?? null} active={active && !!collector.current}
+      busy={collector.current?.research.busy ?? false} disabled={!collector.current || unavailable || (status?.taskRun != null && !['briefing', 'complete', 'aborted'].includes(status.taskRun.phase))}
+      hidden={hideInference} onHidden={setHideInference} onRecord={recordResearch} onCalibrate={calibrate} />
     <TaskController hideInference={hideInference} run={status?.taskRun ?? null} count={collector.current?.taskCount ?? 0}
       elapsedSeconds={status?.taskRun?.startedAtMs != null ? ((status.metadata?.startedAtMs ?? 0) + status.elapsedMs - status.taskRun.startedAtMs) / 1000 : 0}
-      disabled={unavailable || !active || reading} pending={!!panel.pending} onStart={startTask} onBegin={beginTask} onConfirmStopped={confirmStopped} />
+      disabled={unavailable || !active || reading || !collector.current?.research.hasStartCalibration || collector.current.research.busy} pending={!!panel.pending} onStart={startTask} onBegin={beginTask} onConfirmStopped={confirmStopped} />
     {!hideInference && <>
     <FeaturePreview collector={collector.current} />
     <section>
@@ -199,6 +234,6 @@ export default function Controller({ identity }: { identity: Identity }) {
     </section>
     </>}
     <SavedRecording key={status?.metadata?.sessionId ?? 'empty'} collector={collector} active={active}
-      reading={reading} setReading={setReading} onVerified={() => { verified.current = true; refresh() }} />
+      reading={reading || (collector.current?.research.busy ?? false)} setReading={setReading} onVerified={() => { verified.current = true; refresh() }} />
   </>
 }

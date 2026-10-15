@@ -74,7 +74,13 @@ export default function Sensor({ identity }: { identity: Identity }) {
       sinceLastSampleMs: latest.current === null ? null : Math.max(0, now - latest.current.receivedAtMs),
     }
   }
-  async function receive(message: Message, _receivedAtMs: number) {
+  async function receive(message: Message, receivedAtMs: number) {
+    if (message.type === 'clock-probe') {
+      if (recorder.current?.metadata.sessionId === message.sessionId) send({ type: 'clock-reply',
+        sessionId: message.sessionId, probeId: message.probeId, phoneReceivedAtMs: receivedAtMs,
+        phoneTimeOriginMs: performance.timeOrigin, phoneSentAtMs: performance.now() })
+      return
+    }
     try {
       const current = recorder.current
       if (message.type === 'start') {

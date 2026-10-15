@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { ResearchRecorder, researchLogSchema } from './research-log'
 import { MAX_SAMPLES, metadataSchema, sampleSchema, legacySampleSchema, completionSchema, hasValidSampleTimes, hasConsistentReceivedIntervals, hasCompleteAcceleration } from './recording-schema'
 import type { RecordingMetadata, Completion } from './recording-schema'
 import type { MotionSample, MotionEstimate, EstimationConfig } from '@physical-adaptive/device-motion'
@@ -9,10 +10,6 @@ import type { TaskRun } from './task-schema'
 
 // Format-compatible empty survey slot; the questionnaire recorder is connected separately.
 const surveyListSchema = z.array(z.never()).max(0)
-
-// Preserve the format contract without inventing observation or clock records.
-const researchLogSchema = z.strictObject({ clock: z.literal('controller-local-performance'), method: z.literal('four-timestamp-minimum-round-trip'), events: z.array(z.never()).max(0), rounds: z.array(z.never()).max(0) })
-const emptyResearch = () => researchLogSchema.parse({ clock: 'controller-local-performance', method: 'four-timestamp-minimum-round-trip', events: [], rounds: [] })
 
 const receiptSchema = z.strictObject({
   startIndex: z.int().nonnegative(), count: z.int().positive(),
@@ -79,6 +76,12 @@ function validateTransfer(value: z.infer<typeof currentTransferBase> | z.infer<t
     || !hasValidEstimateTimes(inference.estimates, value.metadata.startedAtMs, value.completion?.endedAtMs))) {
     context.addIssue({ code: 'custom', message: '推定ログの件数・設定・時刻が不整合です。' })
   }
+  if ('research' in value && value.research.rounds.some((r) => r.exchanges.some((s) => s.phoneTimeOriginMs !== value.metadata.timeOriginMs))) {
+    context.addIssue({ code: 'custom', message: '時刻合わせのiPhone時計が記録と一致しません。' })
+  }
+  if ('research' in value && value.research.events.some((e) => e.taskRunId !== null && !value.tasks.some((t) => t.id === e.taskRunId))) {
+    context.addIssue({ code: 'custom', message: '観察ログの課題IDが記録と一致しません。' })
+  }
   if (('tasks' in value) && (new Set(value.tasks.map((task) => task.id)).size !== value.tasks.length
     || value.tasks.some((task) => task.sessionId !== value.metadata.sessionId || task.requestedAtMs < value.metadata.startedAtMs))) {
     context.addIssue({ code: 'custom', message: '課題の計測IDが一致しません。' })
@@ -103,9 +106,10 @@ export class TransferCollector {
 
 
 
-
+  readonly research: ResearchRecorder
 
   constructor(readonly metadata: RecordingMetadata, readonly controllerTimeOriginMs: number, config: EstimationConfig | null = null) {
+    this.research = new ResearchRecorder(metadata.sessionId, metadata.timeOriginMs)
     this.estimationConfig = config ? estimationConfigSchema.parse(config) : null
   }
 
@@ -179,7 +183,7 @@ export class TransferCollector {
       controllerTimeOriginMs: this.controllerTimeOriginMs, expectedCount: this.expectedCount,
       complete: this.complete, receipts: this.receipts.slice(),
       inference: { config: this.estimationConfig, estimates: includeSamples ? this.estimates.slice() : [], expectedCount: this.expectedEstimateCount },
-      questionnaires: [], tasks: [...this.tasks.values()], research: emptyResearch(),
+      questionnaires: [], tasks: [...this.tasks.values()], research: this.research.snapshot(),
     }
   }
   export(): Transfer { return transferSchema.parse(this.snapshot(true)) }
