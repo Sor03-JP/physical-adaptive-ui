@@ -39,7 +39,7 @@ export default function TaskController({ hideInference, run, count, elapsedSecon
       {taskIdSchema.options.map((id) => <option key={id} value={id}>{id}</option>)}
     </select></label>
     <p>{taskNumber === '1' ? `課題1：${taskTiming.displayMs / 1000}秒間、静止を維持` : taskNumber === '2' ? `課題2：静止で開始、${taskInstructionTiming.firstMs / 1000}秒で歩行指示、${taskInstructionTiming.secondMs / 1000}秒で停止指示` : `課題3：歩行で開始、${taskInstructionTiming.firstMs / 1000}秒で走行指示、${taskInstructionTiming.secondMs / 1000}秒で歩行指示、${taskTiming.displayMs / 1000}秒で停止指示`}</p>
-    <p><small>問題・ボタン配置・時刻の回答入力は暫定です。指示・観察はPCの観察欄で別々に記録します。</small></p>
+    <p><small>問題・ボタン配置・時刻の回答入力は暫定です。指示・観察はPCの観察欄で別々に記録します。時刻合わせが完了してから課題を開始してください。</small></p>
     <div className="controls">
       <button className="primary" disabled={!startAllowed || disabled || pending || inProgress || count >= 100} onClick={() => onStart(taskId, mode)}>問題文を表示</button>
       <button className="primary" disabled={disabled || pending || run?.phase !== 'briefing' || run.briefingShownAtMs === null} onClick={onBegin}>理解・開始状態を確認して計測開始</button>
