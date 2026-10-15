@@ -1,4 +1,6 @@
 import { z } from 'zod'
+import { surveyListSchema, validSurveyLinks } from './questionnaire'
+import type { SurveyRun } from './questionnaire'
 import { ResearchRecorder, researchLogSchema } from './research-log'
 import { MAX_SAMPLES, metadataSchema, sampleSchema, legacySampleSchema, completionSchema, hasValidSampleTimes, hasConsistentReceivedIntervals, hasCompleteAcceleration } from './recording-schema'
 import type { RecordingMetadata, Completion } from './recording-schema'
@@ -7,9 +9,6 @@ import { summarizeMotionWindow } from '@physical-adaptive/device-motion'
 import { estimateSchema, estimationConfigSchema, hasValidEstimateTimes } from './estimation'
 import { taskRunSchema, previousBriefingTaskRunSchema, previousTaskRunSchema, previousSelectionTaskRunSchema, previousAdaptiveTaskRunSchema, legacyTaskRunSchema } from './task-schema'
 import type { TaskRun } from './task-schema'
-
-// Format-compatible empty survey slot; the questionnaire recorder is connected separately.
-const surveyListSchema = z.array(z.never()).max(0)
 
 const receiptSchema = z.strictObject({
   startIndex: z.int().nonnegative(), count: z.int().positive(),
@@ -76,6 +75,10 @@ function validateTransfer(value: z.infer<typeof currentTransferBase> | z.infer<t
     || !hasValidEstimateTimes(inference.estimates, value.metadata.startedAtMs, value.completion?.endedAtMs))) {
     context.addIssue({ code: 'custom', message: '推定ログの件数・設定・時刻が不整合です。' })
   }
+  if ('questionnaires' in value && value.questionnaires.some((run) => run.sessionId !== value.metadata.sessionId
+    || run.requestedAtMs < value.metadata.startedAtMs || !validSurveyLinks(run, value.questionnaires, value.tasks))) {
+    context.addIssue({ code: 'custom', message: 'アンケートと課題・計測記録の対応が不整合です。' })
+  }
   if ('research' in value && value.research.rounds.some((r) => r.exchanges.some((s) => s.phoneTimeOriginMs !== value.metadata.timeOriginMs))) {
     context.addIssue({ code: 'custom', message: '時刻合わせのiPhone時計が記録と一致しません。' })
   }
@@ -104,7 +107,7 @@ export class TransferCollector {
   private readonly estimationConfig: EstimationConfig | null
   private readonly tasks = new Map<string, TaskRun>()
 
-
+  private questionnaires: SurveyRun[] = []
 
   readonly research: ResearchRecorder
 
@@ -116,6 +119,19 @@ export class TransferCollector {
   get count(): number { return this.samples.length }
   get estimateCount(): number { return this.estimates.length }
   get taskRuns(): TaskRun[] { return structuredClone([...this.tasks.values()]) }
+  get surveyRuns(): SurveyRun[] { return structuredClone(this.questionnaires) }
+  updateQuestionnaires(runs: SurveyRun[]): boolean {
+    const parsed = surveyListSchema.parse(runs)
+    if (parsed.some((run) => run.sessionId !== this.metadata.sessionId || !validSurveyLinks(run, parsed, this.taskRuns))) return false
+    // Ignore stale snapshots; submitted answers are immutable.
+    if (this.questionnaires.some((old) => {
+      const next = parsed.find((r) => r.id === old.id)
+      return !next || next.updatedAtMs < old.updatedAtMs || (old.phase === 'submitted' && JSON.stringify(next) !== JSON.stringify(old))
+    })) return false
+    if (JSON.stringify(parsed) === JSON.stringify(this.questionnaires)) return false
+    this.questionnaires = structuredClone(parsed)
+    return true
+  }
   get taskCount(): number { return this.tasks.size }
   updateTask(task: TaskRun | null): boolean {
     if (task === null || task.sessionId !== this.metadata.sessionId) return false
@@ -183,7 +199,7 @@ export class TransferCollector {
       controllerTimeOriginMs: this.controllerTimeOriginMs, expectedCount: this.expectedCount,
       complete: this.complete, receipts: this.receipts.slice(),
       inference: { config: this.estimationConfig, estimates: includeSamples ? this.estimates.slice() : [], expectedCount: this.expectedEstimateCount },
-      questionnaires: [], tasks: [...this.tasks.values()], research: this.research.snapshot(),
+      questionnaires: this.surveyRuns, tasks: [...this.tasks.values()], research: this.research.snapshot(),
     }
   }
   export(): Transfer { return transferSchema.parse(this.snapshot(true)) }

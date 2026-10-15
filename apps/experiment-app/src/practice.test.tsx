@@ -1,6 +1,7 @@
 import { renderToStaticMarkup } from 'react-dom/server'
 import { expect, it } from 'vitest'
 import { canStartPractice, TransitTrial, transitTasks, targetTrainIndex, taskRunSchema } from './tasks'
+import { QuestionnaireBook, conditionTaskIds } from './questionnaire'
 import { TransferCollector, readTransfer, writeTransfer } from './transfer'
 import TransitTaskScreen from './TransitTaskScreen'
 
@@ -64,7 +65,9 @@ it('permits practice before main tasks only and never counts it towards a condit
   expect(canStartPractice(true, [{ ...practice, phase: 'viewing' }], false)).toBe(false)
   expect(canStartPractice(true, [{ ...practice, purpose: 'main' }], false)).toBe(false)
   expect(canStartPractice(true, [practice], true)).toBe(false)
-
+  const practices = ['one', 'two', 'three'].map((id) => completedPractice(id).snapshot())
+  expect(conditionTaskIds(practices, 'automatic')).toEqual([])
+  expect(() => new QuestionnaireBook().open('auto-survey', 'session', 'automatic', ['one', 'two', 'three'], 21000, practices)).toThrow()
 })
 
 it('preserves practice and main labels in JSON and reads version 9 without adding fields', () => {
