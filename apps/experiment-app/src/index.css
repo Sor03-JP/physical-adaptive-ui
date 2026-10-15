@@ -45,3 +45,13 @@ body:has(.task-screen) { overflow: hidden; }
 .task-answer { font-size: 28px; font-variant-numeric: tabular-nums; }
 .task-keypad { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 16px; }
 .task-screen button[aria-pressed="true"] { background: #dceafa; border-color: #174f97; }
+
+body:has(.questionnaire-screen) { overflow: hidden; }
+.questionnaire-screen { position: fixed; inset: 0; z-index: 20; height: 100dvh; overflow-y: auto; overscroll-behavior: contain; box-sizing: border-box; background: white; color: #172334; padding: max(16px, env(safe-area-inset-top)) 16px max(32px, env(safe-area-inset-bottom)); font-size: 16px; }
+.questionnaire-screen h1 { font-size: 20px; }
+.questionnaire-screen fieldset { border: 1px solid #d4dce5; border-radius: 8px; padding: 12px; margin: 20px 0; min-width: 0; }
+.questionnaire-screen legend { padding: 0 4px; line-height: 1.6; }
+.questionnaire-choices { display: flex; flex-wrap: wrap; gap: 6px; }
+.questionnaire-choices label { display: flex; align-items: center; gap: 6px; min-height: 48px; padding: 4px 8px; box-sizing: border-box; border: 1px solid #a4afbe; border-radius: 8px; }
+.questionnaire-choices label:has(input:checked) { background: #dceafa; border-color: #174f97; }
+.questionnaire-screen textarea { box-sizing: border-box; width: 100%; border: 1px solid #a4afbe; border-radius: 8px; padding: 10px; font: inherit; }

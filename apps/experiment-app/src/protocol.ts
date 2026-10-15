@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { surveyListSchema, surveyTargetSchema } from './questionnaire'
 import { clockReplySchema } from './research-log'
 import { experimentModeSchema } from './adaptation'
 import { BATCH_SIZE, MAX_SAMPLES, metadataSchema, sampleSchema, completionSchema } from './recording-schema'
@@ -19,11 +20,13 @@ export const messageSchema = z.discriminatedUnion('type', [
   z.strictObject({ type: z.literal('pull-estimates'), sessionId: z.string().min(1), startIndex: z.int().min(0).max(MAX_SAMPLES) }),
   z.strictObject({ type: z.literal('task-start'), sessionId: z.string().min(1), runId: z.string().min(1), taskId: taskIdSchema, mode: experimentModeSchema.default('normal') }),
   z.strictObject({ type: z.literal('task-begin'), sessionId: z.string().min(1), runId: z.string().min(1) }),
+  z.strictObject({ type: z.literal('survey-open'), sessionId: z.string().min(1), surveyId: z.string().min(1), target: surveyTargetSchema, linkedIds: z.array(z.string().min(1)).min(2).max(3) }),
   z.strictObject({ type: z.literal('task-answer'), sessionId: z.string().min(1), runId: z.string().min(1) }),
   z.strictObject({
     type: z.literal('status'), ready: z.boolean(), streaming: z.boolean(), visible: z.boolean(), error: z.string(),
     permission: z.enum(['prompt', 'granted', 'denied']),
     receivedEventCount: z.int().nonnegative(), validEventCount: z.int().nonnegative(),
+    questionnaires: surveyListSchema,
     metadata: metadataSchema.nullable(), completion: completionSchema.nullable(), taskRun: taskRunSchema.nullable(),
     estimationConfig: estimationConfigSchema.nullable(), estimateCount: z.int().min(0).max(MAX_SAMPLES), latestEstimate: estimateSchema.nullable(),
     count: z.int().min(0).max(MAX_SAMPLES), completeAccelerationCount: z.int().min(0).max(MAX_SAMPLES),

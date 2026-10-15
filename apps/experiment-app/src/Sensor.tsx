@@ -7,9 +7,12 @@ import type { Identity, Message, PhoneStatus } from './protocol'
 import { useMeasurementTransport } from './transport'
 import { estimationConfig } from './estimation'
 import TransitTaskScreen from './TransitTaskScreen'
+import QuestionnaireScreen from './QuestionnaireScreen'
+import { QuestionnaireBook } from './questionnaire'
 import { TransitTrial, canStartPractice } from './tasks'
 import type { PresentationMetrics, RenderedTaskContext } from './adaptation'
 import type { TaskRun } from './tasks'
+import type { SurveyRun } from './questionnaire'
 
 export default function Sensor({ identity }: { identity: Identity }) {
   const source = useRef<DeviceMotionSource | null>(null)
@@ -22,6 +25,12 @@ export default function Sensor({ identity }: { identity: Identity }) {
   const generation = useRef(0)
   const trial = useRef<TransitTrial | null>(null)
   const taskHistory = useRef(new Map<string, TaskRun>())
+  const questionnaires = useRef(new QuestionnaireBook())
+  const [survey, setSurvey] = useState<SurveyRun | null>(null)
+  const renderSurvey = useCallback(() => setSurvey(questionnaires.current.active), [])
+  const presentSurvey = useCallback((id: string) => {
+    questionnaires.current.present(id, performance.now()); renderSurvey()
+  }, [renderSurvey])
   const [taskRun, setTaskRun] = useState<TaskRun | null>(null)
   const [dismissedPracticeId, setDismissedPracticeId] = useState<string | null>(null)
   const renderTask = useCallback(() => setTaskRun(trial.current?.snapshot() ?? null), [])
@@ -65,7 +74,7 @@ export default function Sensor({ identity }: { identity: Identity }) {
       type: 'status', streaming: streaming.current, visible: !document.hidden, ready: enabled.current && events.current.valid > 0 && !document.hidden,
       permission: source.current?.getPermission() ?? 'prompt', error: error.current,
       receivedEventCount: events.current.total, validEventCount: events.current.valid,
-
+      questionnaires: questionnaires.current.snapshot(),
       metadata: current?.metadata ?? null, completion: current?.completion ?? null, taskRun: trial.current?.snapshot() ?? null,
       estimationConfig: current?.estimationConfig ?? null, estimateCount: current?.estimateCount ?? 0,
       latestEstimate: current?.latestEstimate ?? null,
@@ -96,15 +105,26 @@ export default function Sensor({ identity }: { identity: Identity }) {
         if (message.type === 'stop') finish('manual')
         if (message.type === 'clear') {
           if (current.active) throw new Error('記録停止後に消去してください。')
+          if (questionnaires.current.answering) throw new Error('アンケートの回答が途中です。送信してから消去してください。')
           recorder.current = null; trial.current = null; taskHistory.current.clear();
-          setDismissedPracticeId(null); renderTask(); error.current = ''
+          questionnaires.current = new QuestionnaireBook(); setDismissedPracticeId(null); renderSurvey(); renderTask(); error.current = ''
+        }
+        if (message.type === 'survey-open') {
+          if (trial.current && !trial.current.complete) throw new Error('課題を終了してからアンケートを表示してください。')
+          const previous = trial.current?.snapshot()
+          if (previous) taskHistory.current.set(previous.id, previous)
+          questionnaires.current.open(message.surveyId, message.sessionId, message.target, message.linkedIds,
+            performance.now(), [...taskHistory.current.values()])
+          renderSurvey(); error.current = ''
         }
         if (message.type === 'task-start') {
           if (trial.current?.snapshot().id !== message.runId) {
+            if (questionnaires.current.answering) throw new Error('アンケート回答を終了してから次の課題を開始してください。')
             if (!current.active) throw new Error('センサー記録中に課題を開始してください。')
             if (trial.current && !trial.current.complete) throw new Error('現在の課題を終了してから次を開始してください。')
             const previous = trial.current?.snapshot()
             if (previous) taskHistory.current.set(previous.id, previous)
+            questionnaires.current.dismiss(); renderSurvey()
             trial.current = new TransitTrial(message.runId, message.sessionId, message.taskId, performance.now(), message.mode)
             trial.current.updateAdaptation(current.latestEstimate, performance.now())
             renderTask(); error.current = ''
@@ -166,14 +186,14 @@ export default function Sensor({ identity }: { identity: Identity }) {
     const all = new Map(taskHistory.current)
     const current = trial.current?.snapshot()
     if (current) all.set(current.id, current)
-    return connected && controller && canStartPractice(recorder.current?.active ?? false, [...all.values()], false)
+    return connected && controller && canStartPractice(recorder.current?.active ?? false, [...all.values()], questionnaires.current.answering)
   }
   function startPractice() {
     const current = recorder.current
     if (!current || !practiceAvailable()) return
     const previous = trial.current?.snapshot()
     if (previous) taskHistory.current.set(previous.id, previous)
-    setDismissedPracticeId(null)
+    questionnaires.current.dismiss(); renderSurvey(); setDismissedPracticeId(null)
     trial.current = new TransitTrial(crypto.randomUUID(), current.metadata.sessionId, 'P1', performance.now(), 'automatic')
     trial.current.updateAdaptation(current.latestEstimate, performance.now())
     renderTask(); send(snapshot())
@@ -203,7 +223,10 @@ export default function Sensor({ identity }: { identity: Identity }) {
     finally { if (token === generation.current) setPending(false) }
   }
   return <section>
-    {taskRun && taskRun.id !== dismissedPracticeId && <TransitTaskScreen key={taskRun.id} run={taskRun} onPresent={presentTask} onAdvance={advanceTask}
+    {survey && <QuestionnaireScreen key={survey.id} run={survey} onPresent={presentSurvey}
+      onAnswer={(id, item, value) => { questionnaires.current.answer(id, item, value, performance.now()); renderSurvey(); send(snapshot()) }}
+      onSubmit={(id) => { questionnaires.current.submit(id, performance.now()); renderSurvey(); send(snapshot()) }} />}
+    {!survey && taskRun && taskRun.id !== dismissedPracticeId && <TransitTaskScreen key={taskRun.id} run={taskRun} onPresent={presentTask} onAdvance={advanceTask}
       onPracticeBegin={() => practiceAction('begin')} onPracticeConfirm={() => practiceAction('confirm')} onPracticeFinish={closePractice}
       onSelectTrain={(index) => { trial.current?.select(index, performance.now()); renderTask(); send(snapshot()) }}
       onAnswer={(value) => { trial.current?.answer(value, performance.now()); renderTask(); send(snapshot()) }}
