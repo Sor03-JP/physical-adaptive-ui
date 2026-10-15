@@ -1,5 +1,8 @@
 import type { Unsubscribe } from '@physical-adaptive/core'
 
+export { summarizeMotionWindow } from './features'
+export type { MagnitudeStatistics, MotionWindowSummary } from './features'
+
 export interface Vector3 {
   readonly x: number | null
   readonly y: number | null
