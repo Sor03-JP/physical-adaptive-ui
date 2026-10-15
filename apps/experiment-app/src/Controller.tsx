@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { atom, useAtom } from 'jotai'
+import SavedRecording from './SavedRecording'
 import type { Identity, Message, PhoneStatus, Presence } from './protocol'
 import { useMeasurementTransport } from './transport'
 import { MAX_SAMPLES } from './recording'
@@ -16,9 +17,11 @@ export default function Controller({ identity }: { identity: Identity }) {
   const [presence, setPresence] = useState<Presence>({ controller: false, sensor: false, sensorUrls: [], error: '' })
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
+  const [reading, setReading] = useState(false)
   const collector = useRef<TransferCollector | null>(null)
   const phone = useRef<PhoneStatus | null>(null)
   const command = useRef<Command | null>(null)
+  const verified = useRef(false)
 
   function refresh() {
     const current = collector.current
@@ -41,7 +44,7 @@ export default function Controller({ identity }: { identity: Identity }) {
       if (pending?.type === 'start' && metadata?.sessionId === pending.sessionId) command.current = null
       if (pending?.type === 'stop' && metadata?.sessionId === pending.sessionId && packet.completion) command.current = null
       if (pending?.type === 'clear' && metadata === null) {
-        collector.current = null; command.current = null
+        collector.current = null; command.current = null; verified.current = false
       }
       if (packet.error) {
         setError(packet.error)
@@ -49,7 +52,8 @@ export default function Controller({ identity }: { identity: Identity }) {
       }
     } else if (packet.type === 'batch' && packet.sessionId === collector.current?.metadata.sessionId) {
       const current = collector.current
-      current.receive(packet.startIndex, packet.samples, receivedAtMs)
+      const accepted = current.receive(packet.startIndex, packet.samples, receivedAtMs)
+      if (accepted) verified.current = false
     }
     refresh()
   }
@@ -64,7 +68,7 @@ export default function Controller({ identity }: { identity: Identity }) {
       }
     }, 200)
     const unload = (event: BeforeUnloadEvent) => {
-      if (collector.current) event.preventDefault()
+      if (collector.current && !verified.current) event.preventDefault()
     }
     window.addEventListener('beforeunload', unload)
     return () => { clearInterval(timer); window.removeEventListener('beforeunload', unload) }
@@ -72,7 +76,7 @@ export default function Controller({ identity }: { identity: Identity }) {
 
   function start() {
     if (collector.current || command.current || !connected || !presence.sensor || !phone.current?.ready) return
-    setError(''); setMessage('')
+    verified.current = false; setError(''); setMessage('')
     command.current = { type: 'start', sessionId: crypto.randomUUID() }
     send(command.current); refresh()
   }
@@ -83,7 +87,7 @@ export default function Controller({ identity }: { identity: Identity }) {
   }
   function clear() {
     if (!collector.current?.complete || command.current) return
-    if (!window.confirm('PCとiPhoneの記録を消去します。必要なJSONを保存しましたか？')) return
+    if (!verified.current && !window.confirm('PCとiPhoneの記録を消去します。必要なJSONを保存しましたか？')) return
     command.current = { type: 'clear', sessionId: collector.current.metadata.sessionId }
     send(command.current); refresh(); setMessage('')
   }
@@ -96,7 +100,7 @@ export default function Controller({ identity }: { identity: Identity }) {
       anchor.href = url; anchor.download = `motion-${data.metadata.sessionId}${data.complete ? '' : '-partial'}.json`
       document.body.append(anchor); anchor.click(); anchor.remove()
       window.setTimeout(() => URL.revokeObjectURL(url), 30_000)
-      setError(''); setMessage(data.complete ? 'JSON出力を開始しました。保存ファイルを確認してください。'
+      setError(''); setMessage(data.complete ? 'JSON出力を開始しました。保存ファイルをPCで読み戻して確認してください。'
         : '途中データを出力しました。停止確認・全件受信が完了したファイルではありません。')
     } catch { setError('出力できませんでした。記録は保持しています。') }
   }
@@ -121,7 +125,7 @@ export default function Controller({ identity }: { identity: Identity }) {
       <h2>PCから記録</h2>
       <p className="status" role="status">{panel.pending ? `操作の応答待ち：${panel.pending}` : active ? '記録中' : panel.complete ? '停止・全件受信済み' : collector.current ? '停止確認または転送待ち' : '開始前'}</p>
       <div className="controls">
-        <button className="primary" disabled={unavailable || !status?.ready || !!collector.current || !!panel.pending} onClick={start}>記録開始</button>
+        <button className="primary" disabled={unavailable || !status?.ready || !!collector.current || !!panel.pending || reading} onClick={start}>記録開始</button>
         <button disabled={!active || !!panel.pending} onClick={stop}>記録停止</button>
       </div>
       <dl>
@@ -139,10 +143,12 @@ export default function Controller({ identity }: { identity: Identity }) {
       <p><small>「—」は欠損・未受信。生データは全件記録し、画面・通信はまとめて更新します。上限{MAX_SAMPLES}件で自動停止します。</small></p>
       <p><small>iPhoneの取得時刻とPCの受信時刻を別々に保存します。時計の補正はまだ行いません。</small></p>
       <div className="controls">
-        <button disabled={!collector.current} onClick={download}>{panel.complete ? 'JSONをPCに出力' : '途中データをPCに出力'}</button>
-        <button disabled={!panel.complete || !!panel.pending} onClick={clear}>記録を消して次の計測へ</button>
+        <button disabled={!collector.current || reading} onClick={download}>{panel.complete ? 'JSONをPCに出力' : '途中データをPCに出力'}</button>
+        <button disabled={!panel.complete || !!panel.pending || reading} onClick={clear}>記録を消して次の計測へ</button>
       </div>
       {message && <p className="success" role="status">{message}</p>}
     </section>
+    <SavedRecording key={status?.metadata?.sessionId ?? 'empty'} collector={collector} active={active}
+      reading={reading} setReading={setReading} onVerified={() => { verified.current = true }} />
   </>
 }
