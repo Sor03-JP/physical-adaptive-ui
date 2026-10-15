@@ -2,6 +2,8 @@ import type { Unsubscribe } from '@physical-adaptive/core'
 
 export { summarizeMotionWindow } from './features'
 export type { MagnitudeStatistics, MotionWindowSummary } from './features'
+export { MotionEstimator, StateStabilizer, classifyMotion, validateEstimationConfig } from './estimation'
+export type { EstimationConfig, MotionEstimate, ClassificationReason } from './estimation'
 
 export interface Vector3 {
   readonly x: number | null
