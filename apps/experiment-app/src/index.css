@@ -26,3 +26,22 @@ small { color: #526073; }
 input[type="file"] { display: block; width: 100%; margin-top: 12px; }
 pre { overflow-x: auto; font-size: 13px; padding: 12px 0; }
 summary { cursor: pointer; padding: 12px 0; }
+body:has(.task-screen) { overflow: hidden; }
+.task-screen { position: fixed; inset: 0; height: 100dvh; box-sizing: border-box; z-index: 10; background: white; color: #172334; padding: max(16px, env(safe-area-inset-top)) 16px max(16px, env(safe-area-inset-bottom)); overflow: auto; overscroll-behavior: contain; font-size: 16px; }
+.task-screen h1 { font-size: 16px; line-height: 1.6; font-weight: 600; min-height: 52px; }
+.task-screen footer { margin-top: 12px; flex-shrink: 0; }
+.task-screen[data-phase="preparing"], .task-screen[data-phase="viewing"] { display: flex; flex-direction: column; overflow: hidden; }
+.task-information { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.task-information h1 { flex-shrink: 0; margin: 0 0 8px; }
+.task-context { margin: 0 0 8px; flex-shrink: 0; font-size: 14px; }
+.task-context p { margin: 0; }
+.task-context strong { font-variant-numeric: tabular-nums; }
+.task-line { color: #526073; margin: 0 0 4px; font-size: 14px; flex-shrink: 0; }
+.task-train-columns, .task-train { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; text-align: center; align-items: center; }
+.task-train-columns { padding: 0 12px; color: #526073; font-size: 14px; flex-shrink: 0; }
+.task-trains { list-style: none; padding: 0; margin: 4px 0 0; flex: 1; min-height: 0; display: grid; grid-template-rows: repeat(5, minmax(0, 1fr)); gap: 4px; }
+.task-trains li { min-height: 0; display: flex; align-items: center; }
+.task-train { width: 100%; height: min(var(--task-row-height), 100%); min-height: 0; box-sizing: border-box; padding: 0 12px; font-size: var(--task-row-font); line-height: 1.2; font-variant-numeric: tabular-nums; }
+.task-answer { font-size: 28px; font-variant-numeric: tabular-nums; }
+.task-keypad { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 16px; }
+.task-screen button[aria-pressed="true"] { background: #dceafa; border-color: #174f97; }
