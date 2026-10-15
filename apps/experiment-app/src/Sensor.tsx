@@ -5,6 +5,7 @@ import { hasCompleteAcceleration, MeasurementRecorder } from './recording'
 import type { StopReason } from './recording'
 import type { Identity, Message, PhoneStatus } from './protocol'
 import { useMeasurementTransport } from './transport'
+import { estimationConfig } from './estimation'
 
 export default function Sensor({ identity }: { identity: Identity }) {
   const source = useRef<DeviceMotionSource | null>(null)
@@ -43,6 +44,8 @@ export default function Sensor({ identity }: { identity: Identity }) {
       permission: source.current?.getPermission() ?? 'prompt', error: error.current,
       receivedEventCount: events.current.total, validEventCount: events.current.valid,
       metadata: current?.metadata ?? null, completion: current?.completion ?? null,
+      estimationConfig: current?.estimationConfig ?? null, estimateCount: current?.estimateCount ?? 0,
+      latestEstimate: current?.latestEstimate ?? null,
       count: view?.count ?? 0, completeAccelerationCount: view?.completeAccelerationCount ?? 0,
       latest: latest.current, elapsedMs: view?.elapsedMs ?? 0,
       sinceLastSampleMs: latest.current === null ? null : Math.max(0, now - latest.current.receivedAtMs),
@@ -57,7 +60,7 @@ export default function Sensor({ identity }: { identity: Identity }) {
         if (!snapshot().ready) throw new Error('センサーの許可・受信確認が完了していません。')
         recorder.current = new MeasurementRecorder({ sessionId: message.sessionId,
           startedAt: new Date().toISOString(), startedAtMs: performance.now(),
-          timeOriginMs: performance.timeOrigin, userAgent: navigator.userAgent })
+          timeOriginMs: performance.timeOrigin, userAgent: navigator.userAgent }, estimationConfig)
         try { feed() } catch (cause) { recorder.current = null; throw cause }
         error.current = ''
       } else if ('sessionId' in message && current && message.sessionId === current.metadata.sessionId) {
@@ -68,6 +71,8 @@ export default function Sensor({ identity }: { identity: Identity }) {
         }
         if (message.type === 'pull') send({ type: 'batch', sessionId: message.sessionId,
           startIndex: message.startIndex, samples: current.batch(message.startIndex) })
+        if (message.type === 'pull-estimates') send({ type: 'estimates', sessionId: message.sessionId,
+          startIndex: message.startIndex, estimates: current.estimateBatch(message.startIndex) })
       }
     } catch (cause) { error.current = cause instanceof Error ? cause.message : '操作を実行できませんでした。' }
     send(snapshot())
@@ -86,11 +91,13 @@ export default function Sensor({ identity }: { identity: Identity }) {
   useEffect(() => {
     const generationRef = generation
     const timer = window.setInterval(() => {
+      recorder.current?.evaluate(performance.now())
+      if (recorder.current?.completion?.stopReason === 'capacity') finish('capacity')
       const current = snapshot()
       send(current)
       setStatus(error.current || (recorder.current?.active ? '記録中です。操作はPCで行います。'
         : current.ready ? '準備済みです。PCから記録を開始できます。' : 'センサーの許可・受信を確認してください。'))
-    }, 200)
+    }, estimationConfig.updateIntervalMs)
     const hidden = () => {
       if (!document.hidden) return
       finish('page-hidden'); enabled.current = false
