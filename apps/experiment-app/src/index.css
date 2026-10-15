@@ -1,0 +1,28 @@
+@import "tailwindcss";
+
+:root { font-family: system-ui, sans-serif; color: #172334; background: #f3f5f8; }
+body { margin: 0; }
+main { max-width: 680px; margin: auto; padding: 24px 16px 48px; }
+h1 { font-size: 24px; font-weight: 700; margin-bottom: 12px; }
+h2 { font-size: 18px; font-weight: 700; margin-bottom: 12px; }
+p { margin: 10px 0; line-height: 1.6; }
+section { background: white; padding: 16px; border-radius: 12px; margin-top: 16px; }
+button, input { font: inherit; }
+button { min-height: 48px; padding: 10px 16px; border: 1px solid #a4afbe; border-radius: 8px; background: #fff; cursor: pointer; }
+button.primary { background: #174f97; color: white; border-color: #174f97; }
+button:disabled { opacity: .45; cursor: default; }
+button:focus-visible, input:focus-visible { outline: 3px solid #174f97; outline-offset: 3px; }
+.controls { display: flex; gap: 12px; flex-wrap: wrap; margin: 16px 0; }
+.status { font-size: 18px; font-weight: 600; }
+.notice { color: #754600; }
+.error { color: #a11414; }
+.success { color: #17663d; }
+dt { color: #526073; }
+dd { margin: 0 0 10px; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+th, td { padding: 8px 4px; border-bottom: 1px solid #e0e5ec; text-align: right; }
+th:first-child { text-align: left; }
+small { color: #526073; }
+input[type="file"] { display: block; width: 100%; margin-top: 12px; }
+pre { overflow-x: auto; font-size: 13px; padding: 12px 0; }
+summary { cursor: pointer; padding: 12px 0; }

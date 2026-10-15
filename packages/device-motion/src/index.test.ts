@@ -51,7 +51,7 @@ describe('DeviceMotionSource', () => {
     const listener = vi.fn()
     const stop = source.start(listener)
     env.emit()
-    expect(listener).toHaveBeenCalledWith({ eventTimestampMs: 12, intervalMs: 16, receivedAtMs: 42,
+    expect(listener).toHaveBeenCalledWith({ eventTimestampMs: 12, reportedIntervalRaw: 16, receivedIntervalMs: null, receivedAtMs: 42,
       acceleration: { x: 0, y: null, z: 1 }, accelerationIncludingGravity: null, rotationRate: null })
     expect(() => source.start(listener)).toThrow('既に')
     stop(); source.stop(); stop()
@@ -70,5 +70,28 @@ it('keeps missing values distinct from real zeroes and snapshots event values', 
   acceleration.x = 99
   expect(sample.acceleration).toEqual({ x: 0, y: null, z: null })
   expect(sample.accelerationIncludingGravity).toBeNull()
-  expect(sample.intervalMs).toBeNull()
+  expect(sample.reportedIntervalRaw).toBeNull()
+})
+
+it('preserves the API interval without scaling and derives milliseconds from receipt times', () => {
+  const raw = 0.01666666753590107
+  const sample = snapshotMotionEvent({ ...event, interval: raw }, 116.7, 100)
+  expect(sample.reportedIntervalRaw).toBe(raw)
+  expect(sample.receivedIntervalMs).toBeCloseTo(16.7)
+  expect(snapshotMotionEvent(event, 100).receivedIntervalMs).toBeNull()
+})
+
+it('starts a new receipt-interval sequence whenever acquisition restarts', async () => {
+  let now = 100
+  const env = environment({ now: () => now })
+  const source = new DeviceMotionSource(env.value)
+  await source.requestPermission()
+  const listener = vi.fn()
+  source.start(listener)
+  env.emit(); now = 117; env.emit()
+  expect(listener.mock.calls[0][0].receivedIntervalMs).toBeNull()
+  expect(listener.mock.calls[1][0].receivedIntervalMs).toBe(17)
+  source.stop(); now = 200
+  source.start(listener); env.emit()
+  expect(listener.mock.calls[2][0].receivedIntervalMs).toBeNull()
 })

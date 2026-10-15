@@ -16,7 +16,10 @@ export interface RotationRate {
 export interface MotionSample {
   readonly receivedAtMs: number
   readonly eventTimestampMs: number | null
-  readonly intervalMs: number | null
+  /** Raw event.interval, without assuming the browser actually reports milliseconds. */
+  readonly reportedIntervalRaw: number | null
+  /** Difference between consecutive receipt timestamps in this subscription. */
+  readonly receivedIntervalMs: number | null
   readonly acceleration: Vector3 | null
   readonly accelerationIncludingGravity: Vector3 | null
   readonly rotationRate: RotationRate | null
@@ -49,11 +52,12 @@ function vector(value: Vector3 | null): Vector3 | null {
   return value === null ? null : { x: finite(value.x), y: finite(value.y), z: finite(value.z) }
 }
 
-export function snapshotMotionEvent(event: MotionEventData, receivedAtMs: number): MotionSample {
+export function snapshotMotionEvent(event: MotionEventData, receivedAtMs: number, previousReceivedAtMs: number | null = null): MotionSample {
   return {
     receivedAtMs,
     eventTimestampMs: finite(event.timeStamp),
-    intervalMs: finite(event.interval),
+    reportedIntervalRaw: finite(event.interval),
+    receivedIntervalMs: previousReceivedAtMs === null ? null : finite(receivedAtMs - previousReceivedAtMs),
     acceleration: vector(event.acceleration),
     accelerationIncludingGravity: vector(event.accelerationIncludingGravity),
     rotationRate: event.rotationRate === null ? null : {
@@ -85,8 +89,11 @@ export class DeviceMotionSource {
   start(listener: (sample: MotionSample) => void): Unsubscribe {
     if (this.permission !== 'granted') throw new Error('先にセンサーの利用を許可してください。')
     if (this.stopListening) throw new Error('センサーは既に取得中です。')
+    let previousReceivedAtMs: number | null = null
     const unsubscribe = this.environment.listen((event) => {
-      listener(snapshotMotionEvent(event, this.environment.now()))
+      const sample = snapshotMotionEvent(event, this.environment.now(), previousReceivedAtMs)
+      previousReceivedAtMs = sample.receivedAtMs
+      listener(sample)
     })
     let active = true
     const stop = () => {
