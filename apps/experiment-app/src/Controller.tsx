@@ -2,16 +2,19 @@ import { useEffect, useRef, useState } from 'react'
 import { atom, useAtom } from 'jotai'
 import SavedRecording from './SavedRecording'
 import FeaturePreview from './FeaturePreview'
+import TaskController from './TaskController'
+import { stateLabels } from './adaptation'
+import type { ExperimentMode } from './adaptation'
+import type { TaskId } from './tasks'
 import type { Identity, Message, PhoneStatus, Presence } from './protocol'
 import { useMeasurementTransport } from './transport'
 import { MAX_SAMPLES } from './recording'
 import { TransferCollector, writeTransfer } from './transfer'
 
-type Command = Extract<Message, { type: 'start' | 'stop' | 'clear' }>
+type Command = Extract<Message, { type: 'start' | 'stop' | 'clear' | 'task-start' | 'task-begin' | 'task-answer' }>
 const panelAtom = atom({ phone: null as PhoneStatus | null, received: 0, estimates: 0, valid: 0, complete: false, pending: '' })
 const number = (value: number | null | undefined) => value == null ? '—' : value.toFixed(3)
 const seconds = (value: number) => (value / 1000).toFixed(1)
-const stateNames = { stationary: '静止', walking: '歩行', running: '走行', unknown: '推定不能' }
 
 export default function Controller({ identity }: { identity: Identity }) {
   const [panel, setPanel] = useAtom(panelAtom)
@@ -20,6 +23,7 @@ export default function Controller({ identity }: { identity: Identity }) {
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
   const [reading, setReading] = useState(false)
+  const hideInference = false
   const collector = useRef<TransferCollector | null>(null)
   const phone = useRef<PhoneStatus | null>(null)
   const command = useRef<Command | null>(null)
@@ -40,18 +44,23 @@ export default function Controller({ identity }: { identity: Identity }) {
         if (collector.current && collector.current.metadata.sessionId !== metadata.sessionId) {
           setError('別の記録を受信しました。現在のデータを保存してから、接続先を確認してください。'); return
         }
-        collector.current ??= new TransferCollector(metadata, performance.timeOrigin, packet.estimationConfig)
+        if (!collector.current) {
+          collector.current = new TransferCollector(metadata, performance.timeOrigin, packet.estimationConfig)
+        }
         collector.current.updateStatus(packet.count, packet.completion, packet.estimateCount)
+        if (collector.current.updateTask(packet.taskRun)) verified.current = false
       }
       const pending = command.current
       if (pending?.type === 'start' && metadata?.sessionId === pending.sessionId) command.current = null
       if (pending?.type === 'stop' && metadata?.sessionId === pending.sessionId && packet.completion) command.current = null
-      if (pending?.type === 'clear' && metadata === null) {
-        collector.current = null; command.current = null; verified.current = false
-      }
+      if (pending?.type === 'task-start' && packet.taskRun?.id === pending.runId) command.current = null
+      if (pending?.type === 'task-begin' && packet.taskRun?.id === pending.runId && packet.taskRun.phase !== 'briefing') command.current = null
+      if (pending?.type === 'task-answer' && packet.taskRun?.id === pending.runId && packet.taskRun.phase !== 'waiting-stop') command.current = null
+      if (pending?.type === 'clear' && metadata === null) { collector.current = null; command.current = null; verified.current = false }
       if (packet.error) {
         setError(packet.error)
         if (pending?.type === 'start' && metadata === null) command.current = null
+        if (pending?.type === 'task-start' || pending?.type === 'task-begin' || pending?.type === 'task-answer') command.current = null
       }
     } else if (packet.type === 'batch' && packet.sessionId === collector.current?.metadata.sessionId) {
       const current = collector.current
@@ -93,9 +102,28 @@ export default function Controller({ identity }: { identity: Identity }) {
     command.current = { type: 'stop', sessionId: collector.current.metadata.sessionId }
     send(command.current); refresh()
   }
+  function startTask(taskId: TaskId, mode: ExperimentMode) {
+    const current = collector.current
+    if (!current || command.current || !phone.current?.metadata || phone.current.completion || !connected || !presence.sensor) return
+    setError(''); verified.current = false
+    command.current = { type: 'task-start', sessionId: current.metadata.sessionId, runId: crypto.randomUUID(), taskId, mode }
+    send(command.current); refresh()
+  }
+  function beginTask() {
+    const run = phone.current?.taskRun
+    if (!run || run.phase !== 'briefing' || run.briefingShownAtMs === null || command.current) return
+    command.current = { type: 'task-begin', sessionId: run.sessionId, runId: run.id }
+    send(command.current); refresh()
+  }
+  function confirmStopped() {
+    const run = phone.current?.taskRun
+    if (!run || run.phase !== 'waiting-stop' || command.current) return
+    command.current = { type: 'task-answer', sessionId: run.sessionId, runId: run.id }
+    send(command.current); refresh()
+  }
   function clear() {
     if (!collector.current?.complete || command.current) return
-    if (!verified.current && !window.confirm('PCとiPhoneの記録を消去します。必要なJSONを保存しましたか？')) return
+    if (!verified.current && !window.confirm('現在の記録を終了し、次の計測へ進みます。必要なJSONを保存しましたか？')) return
     command.current = { type: 'clear', sessionId: collector.current.metadata.sessionId }
     send(command.current); refresh(); setMessage('')
   }
@@ -103,13 +131,10 @@ export default function Controller({ identity }: { identity: Identity }) {
     if (!collector.current) return
     try {
       const data = collector.current.export()
-      const url = URL.createObjectURL(new Blob([writeTransfer(data)], { type: 'application/json' }))
-      const anchor = document.createElement('a')
-      anchor.href = url; anchor.download = `motion-${data.metadata.sessionId}${data.complete ? '' : '-partial'}.json`
-      document.body.append(anchor); anchor.click(); anchor.remove()
-      window.setTimeout(() => URL.revokeObjectURL(url), 30_000)
-      setError(''); setMessage(data.complete ? 'JSON出力を開始しました。保存ファイルをPCで読み戻して確認してください。'
-        : '途中データを出力しました。停止確認・全件受信が完了したファイルではありません。')
+      const blob = new Blob([writeTransfer(data)], { type: 'application/json' })
+      const url = URL.createObjectURL(blob), link = document.createElement('a')
+      link.href = url; link.download = `motion-${data.metadata.sessionId}${data.complete ? '' : '-partial'}.json`; link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000)
+      setError(''); setMessage('JSONを出力しました。停止・全件受信後に読み戻して確認してください。')
     } catch { setError('出力できませんでした。記録は保持しています。') }
   }
 
@@ -144,31 +169,36 @@ export default function Controller({ identity }: { identity: Identity }) {
         <dt>イベント受信時刻差（ms）</dt><dd>{number(latest?.receivedIntervalMs)}</dd>
         <dt>停止理由</dt><dd>{status?.completion?.stopReason ?? '—'}</dd>
       </dl>
-      <table><caption>iPhoneから届いた最新のセンサー値</caption><thead><tr><th>種類</th><th>x / α</th><th>y / β</th><th>z / γ</th></tr></thead><tbody>
+      {!hideInference && <table><caption>iPhoneから届いた最新のセンサー値</caption><thead><tr><th>種類</th><th>x / α</th><th>y / β</th><th>z / γ</th></tr></thead><tbody>
         <tr><th>加速度<br /><small>m/s²</small></th><td>{number(latest?.acceleration?.x)}</td><td>{number(latest?.acceleration?.y)}</td><td>{number(latest?.acceleration?.z)}</td></tr>
         <tr><th>重力込み<br /><small>m/s²</small></th><td>{number(latest?.accelerationIncludingGravity?.x)}</td><td>{number(latest?.accelerationIncludingGravity?.y)}</td><td>{number(latest?.accelerationIncludingGravity?.z)}</td></tr>
         <tr><th>回転速度<br /><small>°/s</small></th><td>{number(latest?.rotationRate?.alpha)}</td><td>{number(latest?.rotationRate?.beta)}</td><td>{number(latest?.rotationRate?.gamma)}</td></tr>
-      </tbody></table>
+      </tbody></table>}
       <p><small>「—」は欠損・未受信。生データは全件記録し、画面・通信はまとめて更新します。上限{MAX_SAMPLES}件で自動停止します。</small></p>
-      <p><small>iPhoneの取得時刻とPCの受信時刻を別々に保存します。時計の補正はまだ行いません。</small></p>
+      <p><small>iPhoneの取得時刻とPCの受信時刻を別々に保存します。両端末の時計はまだ同期していません。生データの時刻は書き換えません。</small></p>
       <div className="controls">
         <button disabled={!collector.current || reading} onClick={download}>{panel.complete ? 'JSONをPCに出力' : '途中データをPCに出力'}</button>
-        <button disabled={!panel.complete || !!panel.pending || reading} onClick={clear}>記録を消して次の計測へ</button>
+        <button disabled={!panel.complete || !!panel.pending || reading} onClick={clear}>記録を保管して次の計測へ</button>
       </div>
       {message && <p className="success" role="status">{message}</p>}
     </section>
+    <TaskController hideInference={hideInference} run={status?.taskRun ?? null} count={collector.current?.taskCount ?? 0}
+      elapsedSeconds={status?.taskRun?.startedAtMs != null ? ((status.metadata?.startedAtMs ?? 0) + status.elapsedMs - status.taskRun.startedAtMs) / 1000 : 0}
+      disabled={unavailable || !active || reading} pending={!!panel.pending} onStart={startTask} onBegin={beginTask} onConfirmStopped={confirmStopped} />
+    {!hideInference && <>
     <FeaturePreview collector={collector.current} />
     <section>
       <h2>自動状態推定（暫定設定）</h2>
-      <p>Classifier（今回の判定）：{estimate ? stateNames[estimate.classifiedState] : '判定前'} ／ Stabilizer（安定化後）：{estimate ? stateNames[estimate.stabilizedState] : '判定前'}</p>
+      <p>Classifier（今回の判定）：{estimate ? stateLabels[estimate.classifiedState] : '判定前'} ／ Stabilizer（安定化後）：{estimate ? stateLabels[estimate.stabilizedState] : '判定前'}</p>
       <p>判定理由：{status?.latestEstimate?.classificationReason ?? '—'} ／ 安定化：{status?.latestEstimate?.stabilizationReason ?? '—'}</p>
       <p>推定ログ：iPhone {status?.estimateCount ?? 0}件 ／ PC {panel.estimates}件 ／ 未受信 {Math.max(0, (status?.estimateCount ?? 0) - panel.estimates)}件</p>
       <p>判定時刻（iPhone基準）：{number(status?.latestEstimate?.evaluatedAtMs)} ms ／ RMS：{number(status?.latestEstimate?.features.acceleration?.rootMeanSquare)} m/s²</p>
       {estimate?.stationaryFeatures && <p>静止確認用（{status?.estimationConfig?.stationaryWindowMs}ms）のRMS：{number(estimate.stationaryFeatures.acceleration?.rootMeanSquare)} m/s²</p>}
-      <p><small>記録中のみiPhoneで推定します。停止後は最後の結果を表示します。これは実測調整用で、本番の性能は未評価です。UIの自動適応はまだ行いません。</small></p>
+      <p><small>記録中のみiPhoneで推定します。停止後は最後の結果を表示します。これは実測調整用で、本番の性能は未評価です。課題の自動適応条件では、この安定化後の状態を表示へ反映します。</small></p>
       {status?.estimationConfig && <details><summary>今回の推定設定</summary><pre>{JSON.stringify(status.estimationConfig, null, 2)}</pre></details>}
     </section>
+    </>}
     <SavedRecording key={status?.metadata?.sessionId ?? 'empty'} collector={collector} active={active}
-      reading={reading} setReading={setReading} onVerified={() => { verified.current = true }} />
+      reading={reading} setReading={setReading} onVerified={() => { verified.current = true; refresh() }} />
   </>
 }
