@@ -2,6 +2,7 @@ import { z } from 'zod'
 import { MAX_SAMPLES, metadataSchema, sampleSchema, legacySampleSchema, completionSchema, hasValidSampleTimes, hasConsistentReceivedIntervals, hasCompleteAcceleration } from './recording'
 import type { RecordingMetadata, Completion } from './recording'
 import type { MotionSample } from '@physical-adaptive/device-motion'
+import { summarizeMotionWindow } from '@physical-adaptive/device-motion'
 
 const receiptSchema = z.strictObject({
   startIndex: z.int().nonnegative(), count: z.int().positive(),
@@ -74,6 +75,11 @@ export class TransferCollector {
   }
 
   summary() { return { count: this.count, completeAccelerationCount: this.completeAccelerationCount } }
+
+  features(windowMs: number) {
+    const latest = this.samples.at(-1)
+    return latest ? summarizeMotionWindow(this.samples, latest.receivedAtMs, windowMs) : null
+  }
 
   export(): Transfer {
     return transferSchema.parse({
