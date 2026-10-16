@@ -13,7 +13,7 @@ import FeaturePreview from './FeaturePreview'
 import TaskController from './TaskController'
 import QuestionnaireController from './QuestionnaireController'
 import type { SurveyTarget } from './questionnaire'
-import ObservationPanel from './ObservationPanel'
+import ObservationPanel, { canRecordObservation } from './ObservationPanel'
 import type { ObservationKind, ResearchEvent } from './research-log'
 import { stateLabels } from './adaptation'
 import type { ExperimentMode } from './adaptation'
@@ -183,6 +183,11 @@ export default function Controller({ identity }: { identity: Identity }) {
     current.research.begin(phone.current?.completion ? 'end' : current.research.hasStartCalibration ? 'manual' : 'start', controllerNow())
     verified.current = false; refresh()
   }
+  function recordManualResearch(kind: ResearchEvent['kind'], value: ObservationKind) {
+    if (!canRecordObservation(phone.current?.taskRun?.phase ?? null,
+      collector.current?.surveyRuns.some((survey) => survey.phase === 'answering') ?? false)) return
+    recordResearch(kind, value)
+  }
   function openSurvey(target: SurveyTarget, linkedIds: string[]) {
     const current = collector.current
     if (!current || command.current || !connected || !presence.sensor || reading || current.research.busy || current.recovery) return
@@ -299,6 +304,7 @@ export default function Controller({ identity }: { identity: Identity }) {
   const busy = collector.current?.research.busy ?? false
   const run = status?.taskRun ?? null
   const surveys = collector.current?.surveyRuns ?? []
+  const observationActive = active && !recovery && canRecordObservation(run?.phase ?? null, surveys.some((survey) => survey.phase === 'answering'))
   const progress = experimentProgress({ recording, active, recovery, participant, step, run })
   const ready = !unavailable && !!status?.ready && storage.ready && !storage.error && !!status?.storage.ready && !status.storage.error
   const taskDisabled = unavailable || !active || reading || !!storage.error || !storage.savedAt || !status?.storage.savedAt
@@ -373,9 +379,9 @@ export default function Controller({ identity }: { identity: Identity }) {
         {message && <p className="success" role="status">{message}</p>}
       </section>
       {active && recording && <div className="experiment-observation">
-        <ObservationPanel log={collector.current?.research.snapshot() ?? null} active={active}
+        <ObservationPanel compact log={collector.current?.research.snapshot() ?? null} active={observationActive}
           busy={busy} disabled={unavailable || (run != null && !['briefing', 'complete', 'aborted'].includes(run.phase))}
-          hidden={hideInference} onHidden={setHideInference} onRecord={recordResearch} onCalibrate={calibrate} />
+          hidden={hideInference} onHidden={setHideInference} onRecord={recordManualResearch} onCalibrate={calibrate} />
       </div>}
     </div>
     <details ref={details} className="controller-details"><summary>詳細・トラブル対応</summary>

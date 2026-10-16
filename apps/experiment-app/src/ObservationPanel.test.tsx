@@ -1,5 +1,21 @@
 import { expect, it, vi } from 'vitest'
-import { observationKey } from './ObservationPanel'
+import { renderToStaticMarkup } from 'react-dom/server'
+import ObservationPanel, { canRecordObservation, observationKey } from './ObservationPanel'
+
+it('allows observation through stopping and answering, but locks between tasks and during surveys', () => {
+  for (const phase of ['briefing', 'preparing', 'viewing', 'waiting-stop', 'answering']) {
+    expect(canRecordObservation(phase, false)).toBe(true)
+    expect(canRecordObservation(phase, true)).toBe(false)
+  }
+  for (const phase of [null, 'complete', 'aborted']) expect(canRecordObservation(phase, false)).toBe(false)
+  const noop = () => {}
+  const html = renderToStaticMarkup(<ObservationPanel compact log={null} active={false} busy={false} disabled={false}
+    hidden={true} onHidden={noop} onRecord={noop} onCalibrate={noop} />)
+  const recordingButtons = [...html.matchAll(/<button\b([^>]*)>(.*?)<\/button>/gs)].filter((match) => !match[2]!.includes('時刻合わせ'))
+  expect(recordingButtons).toHaveLength(9)
+  for (const match of recordingButtons) expect(match[1]).toContain('disabled=""')
+  expect(html).toContain('次の問題文が表示されると')
+})
 
 it('records individual observation keys but ignores repeats, shortcuts and focused controls', () => {
   const event = { code: 'Space', repeat: false, ctrlKey: false, metaKey: false, altKey: false }
