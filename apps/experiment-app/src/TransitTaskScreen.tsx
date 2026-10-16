@@ -69,7 +69,7 @@ export default function TransitTaskScreen({ run, onPresent, onAdvance, onSelectT
     </div> : run.phase === 'answering' ? <>
       <h1>{practice && '練習：'}指定された行先へ次に発車する電車の到着時刻を回答してください。</h1>
       <p className="task-answer" aria-live="polite">{unknown ? '分からない' : `${digits.padEnd(4, '－').slice(0, 2)}:${digits.padEnd(4, '－').slice(2)}`}</p>
-      <p>時・分を4桁で入力してください。</p>
+      <p>時・分を4桁で入力し、「回答送信」を押してください（例：09:30 → 0930）。{run.timing.answerMs / 1000}秒以内に回答してください。</p>
       <div className="task-keypad">
         {Array.from({ length: 9 }, (_, i) => i + 1).map((value) =>
           <button key={value} data-task-action={`answer-${value}`} onClick={() => enterDigit(value)}>{value}</button>)}
@@ -82,8 +82,10 @@ export default function TransitTaskScreen({ run, onPresent, onAdvance, onSelectT
         <button className="primary" data-task-action="submit" disabled={!validAnswer} onClick={() => { if (validAnswer) onAnswer(unknown ? 'unknown' : arrival) }}>回答送信</button>
       </div>
     </> : <>
-      <h1>{run.phase === 'waiting-stop' ? '情報の表示を終了しました' : run.phase === 'aborted' ? '中止しました' : '回答を終了しました'}</h1>
-      <p>{run.phase === 'waiting-stop' ? practice ? '安全に立ち止まったことを確認してから、回答へ進んでください。' : '安全に立ち止まり、実験者の案内をお待ちください。' : '実験者の案内をお待ちください。'}</p>
+      <h1>{run.phase === 'waiting-stop' ? '安全に立ち止まってください' : run.phase === 'aborted' ? '中止しました' : '回答を終了しました'}</h1>
+      <p>{run.phase === 'waiting-stop' ? practice ? '立ち止まってから、下の「立ち止まったので回答へ」を押してください。' : '実験者が停止を確認して、回答画面を表示します。操作せずにお待ちください。'
+        : run.phase === 'aborted' ? '操作をやめて、実験者にお知らせください。'
+        : practice ? '下の「練習を閉じる」を押してください。' : 'この課題は終了です。次の問題やアンケートは実験者が表示します。このまま案内をお待ちください。'}</p>
     </>}
     {practice && run.phase === 'briefing' && <>
       <p>行をタップすると選択でき、選び直せます。{run.timing.displayMs / 1000}秒後に情報が消えたら、安全に立ち止まってから到着時刻を4桁で回答します。身体の動きは実験者の指示に従ってください。</p>

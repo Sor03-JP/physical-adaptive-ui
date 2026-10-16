@@ -57,6 +57,11 @@ body:has(.questionnaire-screen) { overflow: hidden; }
 .questionnaire-screen textarea { box-sizing: border-box; width: 100%; border: 1px solid #a4afbe; border-radius: 8px; padding: 10px; font: inherit; }
 
 .controller-page { max-width: 1080px; }
+.phone-next { border-top: 4px solid #174f97; padding-top: 12px; }
+.phone-next h2 { font-size: 24px; line-height: 1.5; }
+.phone-next .primary { width: 100%; margin: 12px 0; }
+.phone-stage { color: #526073; font-size: 14px; }
+.phone-details { border-top: 1px solid #d4dce5; margin-top: 24px; }
 .controller-status { position: sticky; top: 0; z-index: 5; background: #f3f5f8; border-bottom: 1px solid #d4dce5; padding: 8px 0; display: flex; align-items: center; gap: 12px; justify-content: space-between; }
 .controller-status p { margin: 0; font-size: 14px; }
 .controller-status span { display: inline-block; margin-left: 16px; }
