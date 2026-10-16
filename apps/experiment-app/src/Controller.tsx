@@ -15,6 +15,7 @@ import QuestionnaireController from './QuestionnaireController'
 import type { SurveyTarget } from './questionnaire'
 import ObservationPanel, { canRecordObservation } from './ObservationPanel'
 import type { ObservationKind, ResearchEvent } from './research-log'
+import { observationGuide } from './observation-plan'
 import { stateLabels } from './adaptation'
 import type { ExperimentMode } from './adaptation'
 import type { TaskId } from './tasks'
@@ -252,6 +253,8 @@ export default function Controller({ identity }: { identity: Identity }) {
   function beginTask() {
     const run = phone.current?.taskRun
     if (!run || run.phase !== 'briefing' || run.briefingShownAtMs === null || command.current || collector.current?.research.busy) return
+    const initial = observationGuide(run, 0)
+    if (initial) recordResearch('observation', initial.state)
     command.current = { type: 'task-begin', sessionId: run.sessionId, runId: run.id }
     send(command.current); refresh()
   }
@@ -305,6 +308,7 @@ export default function Controller({ identity }: { identity: Identity }) {
   const busy = collector.current?.research.busy ?? false
   const run = status?.taskRun ?? null
   const surveys = collector.current?.surveyRuns ?? []
+  const taskElapsedMs = run?.startedAtMs != null ? (status?.metadata?.startedAtMs ?? 0) + (status?.elapsedMs ?? 0) - run.startedAtMs : 0
   const observationActive = active && !recovery && canRecordObservation(run?.phase ?? null, surveys.some((survey) => survey.phase === 'answering'))
   const progress = experimentProgress({ recording, active, recovery, participant, step, run })
   const ready = !unavailable && !!status?.ready && storage.ready && !storage.error && !!status?.storage.ready && !status.storage.error
@@ -364,7 +368,7 @@ export default function Controller({ identity }: { identity: Identity }) {
           {showTask && requiresRetry && <><p className="notice">この課題には既に試行記録があります。中断理由と再実施の対応を確認してください。</p><button onClick={showTroubleshooting}>再実施・中断の対応を開く</button></>}
           {showTask && !requiresRetry && <TaskController planned={planned} startAllowed={step?.kind === 'task'}
             run={run} count={collector.current?.taskCount ?? 0}
-            elapsedSeconds={run?.startedAtMs != null ? ((status?.metadata?.startedAtMs ?? 0) + (status?.elapsedMs ?? 0) - run.startedAtMs) / 1000 : 0}
+            elapsedSeconds={taskElapsedMs / 1000}
             disabled={taskDisabled} pending={!!panel.pending} onStart={startTask} onBegin={beginTask} onConfirmStopped={confirmStopped} />}
           {showSurvey && <QuestionnaireController focused allowedTarget={step.target} runs={surveys} tasks={collector.current?.assessableTaskRuns ?? []}
             disabled={unavailable || reading || !!panel.pending || busy || (run != null && !['complete', 'aborted'].includes(run.phase))} onOpen={openSurvey} />}
@@ -400,9 +404,9 @@ export default function Controller({ identity }: { identity: Identity }) {
         {message && <p className="success" role="status">{message}</p>}
       </section>
       {active && recording && <div className="experiment-observation">
-        <ObservationPanel compact log={collector.current?.research.snapshot() ?? null} active={observationActive}
+        <ObservationPanel compact run={run} elapsedMs={taskElapsedMs} log={collector.current?.research.snapshot() ?? null} active={observationActive}
           busy={busy} disabled={unavailable || (run != null && !['briefing', 'complete', 'aborted'].includes(run.phase))}
-          hidden={hideInference} onHidden={setHideInference} onRecord={recordManualResearch} onCalibrate={calibrate} />
+          hidden={hideInference} onHidden={setHideInference} onRecord={(value) => recordManualResearch('observation', value)} onCalibrate={calibrate} />
       </div>}
     </div>
     <details ref={details} className="controller-details"><summary>詳細・トラブル対応</summary>

@@ -143,11 +143,11 @@ it('retains multiple selection tasks and all timestamps in PC JSON while preserv
   second.present(21010); collector.updateTask(second.snapshot())
   expect(collector.taskCount).toBe(2)
   const data = collector.export()
-  expect(data.version).toBe(11)
+  expect(data.version).toBe(12)
   expect(readTransfer(writeTransfer(data))).toEqual(data)
   expect(data.tasks[0]).toMatchObject({ id: 'one', outcome: 'correct', selectedAtMs: 200, selectedShownAtMs: 210, answer: '10:48' })
   expect(data.tasks[1]).toMatchObject({ id: 'two', phase: 'viewing' })
-  const { management: _management, recovery: _recovery, tasks: _tasks, questionnaires: _questionnaires, research: _research, ...old } = data
+  const { observationProtocol: _observationProtocol, management: _management, recovery: _recovery, tasks: _tasks, questionnaires: _questionnaires, research: _research, ...old } = data
   const { purpose: _purpose6, flow: _flow6, briefingShownAtMs: _briefing6, beginRequestedAtMs: _begin6, ...taskV6 } = first.snapshot()
   const version6 = { ...old, version: 6, tasks: [{ ...taskV6, events: taskV6.events.filter((event) => event.type !== 'briefing-shown' && event.type !== 'view-requested'),
     uiLog: taskV6.uiLog.filter((entry) => entry.phase !== 'briefing') }] }

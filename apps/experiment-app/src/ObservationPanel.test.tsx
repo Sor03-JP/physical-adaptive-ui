@@ -12,15 +12,15 @@ it('allows observation through stopping and answering, but locks between tasks a
   const html = renderToStaticMarkup(<ObservationPanel compact log={null} active={false} busy={false} disabled={false}
     hidden={true} onHidden={noop} onRecord={noop} onCalibrate={noop} />)
   const recordingButtons = [...html.matchAll(/<button\b([^>]*)>(.*?)<\/button>/gs)].filter((match) => !match[2]!.includes('時刻合わせ'))
-  expect(recordingButtons).toHaveLength(9)
+  expect(recordingButtons).toHaveLength(5)
   for (const match of recordingButtons) expect(match[1]).toContain('disabled=""')
   expect(html).toContain('次の問題文が表示されると')
 })
 
 it('records individual observation keys but ignores repeats, shortcuts and focused controls', () => {
   const event = { code: 'Space', repeat: false, ctrlKey: false, metaKey: false, altKey: false }
-  expect(observationKey(event, null)).toBe('transition')
-  for (const [code, kind] of [['Digit1', 'stationary'], ['Digit2', 'walking'], ['Digit3', 'running'], ['Digit4', 'uncertain']])
+  expect(observationKey(event, null)).toBeNull()
+  for (const [code, kind] of [['Digit1', 'stationary'], ['Digit2', 'walking'], ['Digit3', 'running'], ['Digit4', 'uncertain'], ['Digit5', 'missed']])
     expect(observationKey({ ...event, code: code! }, null)).toBe(kind)
   expect(observationKey({ ...event, repeat: true }, null)).toBeNull()
   expect(observationKey({ ...event, ctrlKey: true }, null)).toBeNull()
@@ -33,6 +33,6 @@ it('records individual observation keys but ignores repeats, shortcuts and focus
   vi.stubGlobal('HTMLElement', FocusTarget)
   try {
     expect(observationKey(event, new FocusTarget(true) as unknown as EventTarget)).toBeNull()
-    expect(observationKey(event, new FocusTarget(false) as unknown as EventTarget)).toBe('transition')
+    expect(observationKey({ ...event, code: 'Digit2' }, new FocusTarget(false) as unknown as EventTarget)).toBe('walking')
   } finally { vi.unstubAllGlobals() }
 })
