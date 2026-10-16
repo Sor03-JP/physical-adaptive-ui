@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { atom, useAtom } from 'jotai'
 import SavedRecording from './SavedRecording'
 import ParticipantManager from './ParticipantManager'
+import ExperimentProgress, { experimentProgress } from './ExperimentProgress'
 import StoragePanel from './StoragePanel'
 import { useCheckpoint } from './useCheckpoint'
 import { nextStep, emptyManagement } from './management'
@@ -42,6 +43,7 @@ export default function Controller({ identity }: { identity: Identity }) {
   const clearing = useRef(false)
   const historySession = useRef('')
   const managementSaving = useRef(false)
+  const details = useRef<HTMLDetailsElement>(null)
   const [selectedParticipant, setSelectedParticipant] = useState<Participant | null>(null)
   const [exports, setExports] = useState({ json: false, csv: false })
   function controllerNow() { return performance.now() + performance.timeOrigin - (collector.current?.controllerTimeOriginMs ?? performance.timeOrigin) }
@@ -292,14 +294,93 @@ export default function Controller({ identity }: { identity: Identity }) {
   const step = participant && collector.current ? nextStep(participant, collector.current.taskRuns, collector.current.surveyRuns, management) : null
   const activeTask = step?.kind === 'active' ? collector.current?.taskRuns.find((t) => t.id === step.runId && t.purpose === 'main') : null
   const planned = step?.kind === 'task' ? step : activeTask ? { taskId: activeTask.taskId as TaskId, mode: activeTask.mode } : null
-  return <>
-    <ParticipantManager participant={participant} selected={selectedParticipant} onSelect={setSelectedParticipant}
+  const recording = collector.current !== null
+  const recovery = !!collector.current?.recovery
+  const busy = collector.current?.research.busy ?? false
+  const run = status?.taskRun ?? null
+  const surveys = collector.current?.surveyRuns ?? []
+  const progress = experimentProgress({ recording, active, recovery, participant, step, run })
+  const ready = !unavailable && !!status?.ready && storage.ready && !storage.error && !!status?.storage.ready && !status.storage.error
+  const taskDisabled = unavailable || !active || reading || !!storage.error || !storage.savedAt || !status?.storage.savedAt
+    || !!status?.storage.error || !collector.current?.research.hasStartCalibration || busy || surveys.some((r) => r.phase === 'answering')
+  const canClear = (panel.complete || recovery) && !panel.pending && !reading && !busy && (recovery || !surveys.some((r) => r.phase === 'answering'))
+  const showSurvey = active && !recovery && step?.kind === 'survey'
+  const waitingForPhone = recording && status?.metadata?.sessionId !== collector.current?.metadata.sessionId
+  const requiresRetry = step?.kind === 'task' && !!collector.current?.taskRuns.some((task) => task.purpose === 'main' && task.taskId === step.taskId && task.mode === step.mode)
+  const endClock = collector.current?.research.snapshot().rounds.findLast((round) => round.purpose === 'end')
+  function showTroubleshooting() { if (details.current) { details.current.open = true; const retryPanel = details.current.querySelector<HTMLDetailsElement>('[data-retry-panel]'); if (retryPanel) retryPanel.open = true; (retryPanel ?? details.current).scrollIntoView({ behavior: 'smooth', block: 'start' }) } }
+  const showTask = active && !recovery && (step?.kind === 'task' || (step?.kind === 'active' && run?.purpose === 'main'))
+  const progressManager = (<ParticipantManager variant={collector.current ? 'details' : 'setup'} participant={participant} selected={selectedParticipant} onSelect={setSelectedParticipant}
       locked={!!collector.current || !!panel.pending} management={management} tasks={collector.current?.taskRuns ?? []} surveys={collector.current?.surveyRuns ?? []}
       pending={!!panel.pending || unavailable || !!collector.current?.recovery || historySession.current !== collector.current?.metadata.sessionId} onFailure={markFailure} onRetry={retryTask}
       jsonExported={exports.json} csvExported={exports.csv} verified={verified.current} />
-    <StoragePanel state={storage} phone={status?.storage ?? null} journal={storage.journal} />
-    {collector.current?.recovery && <p className="notice">iPhone更新による中断記録です。保存済みデータを回収し、JSON出力・読戻し一致を確認してください。途中課題の自動再開は行いません。</p>}
-    <section>
+  )
+  return <>
+    <div className="controller-status" aria-label="接続と記録の状態">
+      <p>iPhone：<strong>{unavailable ? '未接続' : status?.ready ? '準備済み' : status?.recovered ? '保存データ回収中' : '受信・許可を確認'}</strong>
+        <span>端末内保存：{storage.error || status?.storage.error ? 'エラー' : storage.ready && status?.storage.ready ? '準備済み' : '準備中'}</span>
+        <span>{participant ? `参加者 ${participant.participantId}` : '参加者未選択'} ／ {active ? '記録中' : recording ? '停止中' : '開始前'}</span></p>
+      {active && <button className="stop-recording" disabled={!!panel.pending} onClick={stop}>中断して記録停止</button>}
+    </div>
+    {[...new Set([presence.error, error, storage.error, status?.storage.error].filter(Boolean))].map((text) => <p className="error controller-alert" role="alert" key={text}>{text}</p>)}
+    {unavailable && recording && <p className="notice controller-alert">通信が切れています。記録は保持しています。iPhoneを更新せず、同じ接続コードで接続し直してください。</p>}
+    {recovery && <p className="notice controller-alert">iPhone更新による中断記録です。保存済みデータを回収してください。途中課題は自動再開しません。</p>}
+    <ExperimentProgress index={progress.index} />
+    <div className="controller-workspace">
+      <section className="experiment-current" aria-label="現在の操作">
+        <h2>{waitingForPhone ? '保存記録を復旧・iPhoneの接続を確認中' : progress.title}</h2>
+        {panel.pending && <p role="status">操作を送信しています。iPhoneの応答を待っています。</p>}
+        {!recording ? <>
+          {unavailable && <><p>iPhoneで同じ接続コードのURLを開き、センサーの利用を許可してください。</p>
+            {presence.sensorUrls.map((url) => <p key={url}><a href={url}>{url}</a></p>)}</>}
+          {!unavailable && !status?.ready && <p>iPhone画面を表示し、「センサー利用を許可・準備」を押してください。</p>}
+          {progressManager}
+          <p>{!ready ? '接続・センサー受信・両端末の保存準備がそろうと開始できます。' : !selectedParticipant ? '参加者IDを選んでください。' : '説明・同意を確認したら記録を開始し、共通練習へ進みます。'}</p>
+          <button className="primary" disabled={!selectedParticipant || !ready || !!panel.pending || reading} onClick={start}>記録を開始して練習へ</button>
+        </> : waitingForPhone ? <p role="status">同じ接続コードのiPhoneを待っています。現在の記録は保持しています。必要なデータは「詳細・トラブル対応」から出力できます。</p> : <>
+          {busy && <p className="notice" role="status">時刻合わせ中です。完了するまでお待ちください。</p>}
+          {active && !busy && !collector.current?.research.hasStartCalibration && <><p className="error">開始時の時刻合わせが成立していません。</p>
+            <button disabled={unavailable || !!panel.pending} onClick={calibrate}>時刻合わせを再計測</button></>}
+          {progress.index === 1 && <><p className="status">{run?.purpose === 'practice' && !['complete', 'aborted'].includes(run.phase) ? 'iPhoneで練習中です。' : 'iPhoneの「練習問題を表示」から1問練習してください。'}</p>
+            <p>選択・選び直し・情報が消えた後の回答まで体験します。練習が終わると、ここに最初の本番課題が表示されます。</p></>}
+          {showTask && requiresRetry && <><p className="notice">この課題には既に試行記録があります。中断理由と再実施の対応を確認してください。</p><button onClick={showTroubleshooting}>再実施・中断の対応を開く</button></>}
+          {showTask && !requiresRetry && <TaskController planned={planned} startAllowed={step?.kind === 'task'}
+            run={run} count={collector.current?.taskCount ?? 0}
+            elapsedSeconds={run?.startedAtMs != null ? ((status?.metadata?.startedAtMs ?? 0) + (status?.elapsedMs ?? 0) - run.startedAtMs) / 1000 : 0}
+            disabled={taskDisabled} pending={!!panel.pending} onStart={startTask} onBegin={beginTask} onConfirmStopped={confirmStopped} />}
+          {showSurvey && <QuestionnaireController focused allowedTarget={step.target} runs={surveys} tasks={collector.current?.assessableTaskRuns ?? []}
+            disabled={unavailable || reading || !!panel.pending || busy || (run != null && !['complete', 'aborted'].includes(run.phase))} onOpen={openSurvey} />}
+          {progress.index === 5 && <>
+            {active ? <><p>両条件とアンケートが終了しました。センサー記録を停止してから、保存へ進みます。</p>
+              <button className="primary" disabled={!!panel.pending || busy} onClick={stop}>記録を停止して保存へ</button></>
+              : <>
+                {!recovery && !busy && endClock && endClock.exchanges.length === 0 && <><p className="error">終了時の時刻合わせが成立していません。接続を確認してください。</p><button disabled={unavailable || !!panel.pending} onClick={calibrate}>終了時の時刻合わせを再計測</button></>}
+                <p>受信件数：iPhone {status?.count ?? 0} ／ PC {panel.received} 件</p>
+                {!panel.complete && <p className="notice">未受信または途中のデータがあります。回収状況を確認してください。途中データも出力できます。</p>}
+                {step?.kind !== 'done' && <p className="notice">全課題・アンケートが終了した記録ではありません。中断した内容を確認して保存してください。</p>}
+                <ol className="save-checklist"><li>JSON出力：{exports.json ? '操作済み' : '未'}</li><li>アンケートCSV出力：{surveys.length ? exports.csv ? '操作済み' : '未' : '回答記録なし'}</li><li>JSON読戻し一致：{verified.current ? '確認済み' : '未確認'}</li></ol>
+                <div className="controls">
+                  <button className={!exports.json ? 'primary' : undefined} disabled={reading || busy} onClick={download}>{exports.json ? 'JSONを再出力' : '1. JSONをPCに出力'}</button>
+                  {surveys.length > 0 && <button className={exports.json && !exports.csv ? 'primary' : undefined} disabled={!exports.json || reading || busy} onClick={downloadQuestionnaires}>2. アンケートCSVをPCに出力</button>}
+                </div>
+                {exports.json && <SavedRecording key={collector.current?.metadata.sessionId} collector={collector} active={active}
+                  reading={reading || busy} setReading={setReading} onVerified={() => { verified.current = true; refresh() }} />}
+                {verified.current && <p className="success">JSONの一致を確認しました。出力したファイルを別の保存先にもバックアップしてください。</p>}
+                <button className="primary" disabled={!canClear || !exports.json || !verified.current || (surveys.length > 0 && !exports.csv)} onClick={clear}>記録を保管して次の参加者へ</button>
+              </>}
+          </>}
+        </>}
+        {message && <p className="success" role="status">{message}</p>}
+      </section>
+      {active && recording && <div className="experiment-observation">
+        <ObservationPanel log={collector.current?.research.snapshot() ?? null} active={active}
+          busy={busy} disabled={unavailable || (run != null && !['briefing', 'complete', 'aborted'].includes(run.phase))}
+          hidden={hideInference} onHidden={setHideInference} onRecord={recordResearch} onCalibrate={calibrate} />
+      </div>}
+    </div>
+    <details ref={details} className="controller-details"><summary>詳細・トラブル対応</summary>
+      {recording && progressManager}
+      <section>
       <h2>接続・準備確認</h2>
       <p role="status">サーバー：{connected ? '接続済み' : '切断／開発サーバー未接続'} ／ iPhone：{presence.sensor && connected ? '接続済み' : '未接続'}</p>
       <p>iPhone画面：{status ? status.visible ? '表示中' : '非表示' : '未確認'} ／ センサー取得：{status ? status.streaming ? '取得中' : '停止中' : '未確認'}</p>
@@ -307,17 +388,11 @@ export default function Controller({ identity }: { identity: Identity }) {
       <p>iPhoneの受信イベント：{status?.receivedEventCount ?? 0}件 ／ 加速度3軸あり：{status?.validEventCount ?? 0}件</p>
       {presence.sensorUrls.map((url) => <p key={url}><a href={url}>iPhoneで開くURL：{url}</a></p>)}
       {!presence.sensorUrls.length && <p>LAN公開で起動し、iPhoneでNetworkのHTTPS URLに「?role=sensor&amp;room={identity.room}」を付けて開いてください。</p>}
-      {(presence.error || error) && <p className="error" role="alert">{presence.error || error}</p>}
       {unavailable && collector.current && <p className="notice">通信が途切れています。既にPCで受信したデータは保持しています。iPhoneのページを閉じず、同じ接続コードで再接続してください。</p>}
     </section>
-    <section>
-      <h2>PCから記録</h2>
-      <p className="status" role="status">{panel.pending ? `操作の応答待ち：${panel.pending}` : active ? '記録中' : panel.complete ? '停止・全件受信済み' : collector.current ? '停止確認または転送待ち' : '開始前'}</p>
-      <div className="controls">
-        <button className="primary" disabled={!selectedParticipant || !storage.ready || !!storage.error || !status?.storage.ready || !!status?.storage.error || unavailable || !status?.ready || !!collector.current || !!panel.pending || reading} onClick={start}>記録開始</button>
-        <button disabled={!active || !!panel.pending} onClick={stop}>記録停止</button>
-      </div>
-      <dl>
+      <StoragePanel state={storage} phone={status?.storage ?? null} journal={storage.journal} />
+      <section><h2>記録の詳細</h2>
+        <dl>
         <dt>記録件数：iPhone／PC／未受信</dt><dd>{status?.count ?? 0}／{panel.received}／{Math.max(0, (status?.count ?? 0) - panel.received)} 件</dd>
         <dt>PC記録内で加速度3軸がそろう件数（重力込みを含む）</dt><dd>{panel.valid} 件</dd>
         <dt>iPhone側の記録時間／最終イベントから</dt><dd>{seconds(status?.elapsedMs ?? 0)} 秒／{status?.sinceLastSampleMs == null ? '未受信' : `${seconds(status.sinceLastSampleMs)} 秒（iPhone報告時点）`}</dd>
@@ -331,23 +406,15 @@ export default function Controller({ identity }: { identity: Identity }) {
       </tbody></table>}
       <p><small>「—」は欠損・未受信。生データは全件記録し、画面・通信はまとめて更新します。上限{MAX_SAMPLES}件で自動停止します。</small></p>
       <p><small>iPhoneの取得時刻とPCの受信時刻を別々に保存します。元の時刻と時刻合わせの通信記録を保持します。補正値は別途記録し、生データの時刻は書き換えません。</small></p>
-      <div className="controls">
-        <button disabled={!collector.current || reading || collector.current.research.busy} onClick={download}>{panel.complete ? 'JSONをPCに出力' : '途中データをPCに出力'}</button>
-        <button disabled={(!panel.complete && !collector.current?.recovery) || !!panel.pending || reading || collector.current?.research.busy || (!collector.current?.recovery && collector.current?.surveyRuns.some((r) => r.phase === 'answering'))} onClick={clear}>記録を保管して次の計測へ</button>
-      </div>
-      {message && <p className="success" role="status">{message}</p>}
-    </section>
-    <ObservationPanel log={collector.current?.research.snapshot() ?? null} active={active && !!collector.current}
-      busy={collector.current?.research.busy ?? false} disabled={!collector.current || unavailable || (status?.taskRun != null && !['briefing', 'complete', 'aborted'].includes(status.taskRun.phase))}
-      hidden={hideInference} onHidden={setHideInference} onRecord={recordResearch} onCalibrate={calibrate} />
-    <TaskController planned={planned} managed={!!participant} startAllowed={!participant || step?.kind === 'task'} hideInference={hideInference} run={status?.taskRun ?? null} count={collector.current?.taskCount ?? 0}
-      elapsedSeconds={status?.taskRun?.startedAtMs != null ? ((status.metadata?.startedAtMs ?? 0) + status.elapsedMs - status.taskRun.startedAtMs) / 1000 : 0}
-      disabled={unavailable || !active || reading || !!storage.error || !storage.savedAt || !status?.storage.savedAt || !!status?.storage.error || !collector.current?.research.hasStartCalibration || collector.current.research.busy || collector.current.surveyRuns.some((r) => r.phase === 'answering')} pending={!!panel.pending} onStart={startTask} onBegin={beginTask} onConfirmStopped={confirmStopped} />
-    <QuestionnaireController allowedTarget={participant ? step?.kind === 'survey' ? step.target : null : undefined} runs={collector.current?.surveyRuns ?? []} tasks={collector.current?.assessableTaskRuns ?? []}
-      disabled={!collector.current || !!collector.current.recovery || unavailable || reading || !!panel.pending || (collector.current?.research.busy ?? false)
-        || (status?.taskRun != null && !['complete', 'aborted'].includes(status.taskRun.phase))}
-      onOpen={openSurvey} onExport={downloadQuestionnaires} />
-    {!hideInference && <>
+        <div className="controls">
+          <button disabled={!recording || reading || busy} onClick={download}>途中データを含めJSONを出力</button>
+          {surveys.length > 0 && <button disabled={reading} onClick={downloadQuestionnaires}>アンケートCSVを出力</button>}
+          <button disabled={!canClear} onClick={clear}>保存を確認して現在の記録を終了</button>
+        </div>
+      </section>
+      {run && !hideInference && <section><h2>課題ログの詳細</h2><pre>{JSON.stringify(run, null, 2)}</pre></section>}
+      <QuestionnaireController readOnly runs={surveys} tasks={collector.current?.assessableTaskRuns ?? []} disabled onOpen={openSurvey} />
+      {!hideInference && <>
     <FeaturePreview collector={collector.current} />
     <section>
       <h2>自動状態推定（暫定設定）</h2>
@@ -360,7 +427,6 @@ export default function Controller({ identity }: { identity: Identity }) {
       {status?.estimationConfig && <details><summary>今回の推定設定</summary><pre>{JSON.stringify(status.estimationConfig, null, 2)}</pre></details>}
     </section>
     </>}
-    <SavedRecording key={status?.metadata?.sessionId ?? 'empty'} collector={collector} active={active}
-      reading={reading || (collector.current?.research.busy ?? false)} setReading={setReading} onVerified={() => { verified.current = true; refresh() }} />
+    </details>
   </>
 }
