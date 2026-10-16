@@ -88,6 +88,6 @@ describe('participant allocation and progress', () => {
     const html = renderToStaticMarkup(<ParticipantManager participant={participant('G4')} selected={null} onSelect={noop} locked management={emptyManagement()}
       tasks={[complete('practice', 'P1', 'automatic')]} surveys={[]} pending={false} onFailure={noop} onRetry={noop} jsonExported csvExported={false} verified={false} />)
     expect(html).toContain('p01'); expect(html).toContain('自動適応UI・A・A1の問題文を表示')
-    expect(html).toContain('JSON出力操作 済'); expect(html).toContain('CSV出力操作 未'); expect(html).toContain('JSON読戻し一致 未確認')
+    expect(html).toContain('全記録のダウンロード操作 済'); expect(html).toContain('アンケート表のダウンロード操作 未'); expect(html).toContain('保存ファイルの一致 未確認')
   })
 })
