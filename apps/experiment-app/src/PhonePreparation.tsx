@@ -1,7 +1,8 @@
-export default function PhonePreparation({ connected, storageReady, storageError, sensorReady, pending, recording, stopped, recovered, practiceReady, practiceFinished, onEnable, onPractice }: {
+export default function PhonePreparation({ connected, storageReady, storageError, sensorReady, pending, recording, stopped, recovered, practiceReady, practiceFinished, onEnable, onPractice, resuming = false }: {
   connected: boolean; storageReady: boolean; storageError: string; sensorReady: boolean; pending: boolean
   recording: boolean; stopped: boolean; recovered: boolean; practiceReady: boolean; practiceFinished: boolean
   onEnable: () => void; onPractice: () => void
+  resuming?: boolean
 }) {
   let title: string, instruction: string
   if (recovered) {
@@ -26,7 +27,7 @@ export default function PhonePreparation({ connected, storageReady, storageError
     title = 'まずは練習しましょう'
     instruction = '実験者の説明を聞いてから、下のボタンで練習問題を開いてください。'
   } else {
-    title = practiceFinished ? '練習が終わりました' : '次の案内をお待ちください'
+    title = resuming ? '続きの準備ができました' : practiceFinished ? '練習が終わりました' : '次の案内をお待ちください'
     instruction = '次の問題は実験者がPCから表示します。このままお待ちください。'
   }
   const enable = connected && storageReady && !storageError && !recovered && !stopped && !recording && !sensorReady

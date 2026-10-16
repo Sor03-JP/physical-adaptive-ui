@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import type { StoredCheckpoint, SessionJournal } from './checkpoint'
-import { checkpointTransfer, writeTransfer } from './transfer'
+import { checkpointTransfer } from './transfer'
+import { loadExperimentRecords, writeExperimentFile } from './experiment-file'
 import { downloadText } from './download'
 
 export default function StoragePanel({ state, phone, journal }: {
@@ -16,7 +17,7 @@ export default function StoragePanel({ state, phone, journal }: {
       const saved = await journal.load(key)
       if (!saved) throw new Error('not found')
       const data = checkpointTransfer(saved)
-      downloadText(writeTransfer(data), `${data.management.participant?.participantId ?? 'unassigned'}_${data.metadata.sessionId}${data.complete && !data.recovery ? '' : '-partial'}.json`, 'application/json')
+      downloadText(writeExperimentFile(await loadExperimentRecords(data, journal)), `${data.management.participant?.participantId ?? 'unassigned'}_${data.metadata.sessionId}${data.complete && !data.recovery ? '' : '-partial'}.json`, 'application/json')
       setError('')
     } catch { setError('保存済み記録の検証・出力に失敗しました。') }
   }

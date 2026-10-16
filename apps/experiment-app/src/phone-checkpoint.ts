@@ -5,12 +5,14 @@ import { estimateSchema, estimationConfigSchema, hasValidEstimateTimes } from '.
 import { taskRunSchema } from './task-schema'
 import { surveyListSchema, validSurveyLinks } from './questionnaire'
 import type { LoadedCheckpoint } from './checkpoint'
+import { continuationSchema } from './continuation'
 
 export const phoneArchiveSchema = z.strictObject({
   format: z.literal('physical-adaptive-phone-checkpoint'), version: z.literal(1),
   metadata: metadataSchema, participant: participantSchema.nullable(), completion: completionSchema.nullable(),
   config: estimationConfigSchema.nullable(), savedThroughMs: z.number().finite().nonnegative(),
   tasks: z.array(taskRunSchema).max(100), questionnaires: surveyListSchema,
+  continuation: continuationSchema.optional(),
   samples: z.array(sampleSchema).max(MAX_SAMPLES), estimates: z.array(estimateSchema).max(MAX_SAMPLES),
 }).superRefine((data, ctx) => {
   if (data.savedThroughMs < data.metadata.startedAtMs
@@ -23,7 +25,9 @@ export const phoneArchiveSchema = z.strictObject({
     || (data.config === null && data.estimates.length > 0)
     || new Set(data.tasks.map((t) => t.id)).size !== data.tasks.length
     || data.tasks.some((t) => t.sessionId !== data.metadata.sessionId || t.requestedAtMs < data.metadata.startedAtMs)
-    || data.questionnaires.some((s) => s.sessionId !== data.metadata.sessionId || !validSurveyLinks(s, data.questionnaires, data.tasks)))
+    || data.questionnaires.some((s) => s.sessionId !== data.metadata.sessionId || !validSurveyLinks(s,
+      [...(data.continuation?.questionnaires ?? []), ...data.questionnaires], [...(data.continuation?.tasks ?? []), ...data.tasks], data.continuation?.previousSessionIds))
+    || (data.continuation && JSON.stringify(data.continuation.participant) !== JSON.stringify(data.participant)))
     ctx.addIssue({ code: 'custom', message: 'iPhone保存データの時刻・計測IDが不整合です。' })
 })
 export type PhoneArchive = z.infer<typeof phoneArchiveSchema>

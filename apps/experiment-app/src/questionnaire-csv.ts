@@ -12,7 +12,10 @@ const cell = (value: string | number | null) => `"${String(value ?? '').replaceA
 /** One row per applicable question. Original answers are preserved without scoring or imputation. */
 export function writeQuestionnaireCsv(runs: SurveyRun[], participant: Participant | null = null): string {
   const rows: (string | number | null)[][] = [columns]
-  for (const run of surveyListSchema.parse(runs)) {
+  const sessions = new Map<string, SurveyRun[]>()
+  for (const run of runs) sessions.set(run.sessionId, [...(sessions.get(run.sessionId) ?? []), run])
+  // Each session allows one survey per condition; an interrupted survey in a previous session remains separate.
+  for (const run of [...sessions.values()].flatMap((session) => surveyListSchema.parse(session))) {
     for (const item of run.items) {
       const value = run.answers[item.id]
       const optionalBlank = !item.required && run.phase === 'submitted' && (value === undefined || value === '')

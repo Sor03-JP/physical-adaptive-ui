@@ -9,6 +9,8 @@ import { useCheckpoint } from './useCheckpoint'
 import { readPhoneCheckpoint } from './phone-checkpoint'
 import type { PhoneArchive } from './phone-checkpoint'
 import type { Participant } from './management'
+import type { Continuation } from './continuation'
+import { assessableTasks } from './management'
 import { estimationConfig } from './estimation'
 import TransitTaskScreen from './TransitTaskScreen'
 import QuestionnaireScreen from './QuestionnaireScreen'
@@ -25,6 +27,7 @@ export default function Sensor({ identity }: { identity: Identity }) {
   const recovered = useRef<PhoneArchive | null>(null)
   const participant = useRef<Participant | null>(null)
   const clearing = useRef(false)
+  const continuation = useRef<Continuation | undefined>(undefined)
   const [recoveryMessage, setRecoveryMessage] = useState('')
   const latest = useRef<MotionSample | null>(null)
   const events = useRef({ total: 0, valid: 0 })
@@ -68,14 +71,15 @@ export default function Sensor({ identity }: { identity: Identity }) {
       if (currentTask) allTasks.set(currentTask.id, currentTask)
       return { sessionId: current.metadata.sessionId, sampleStart, estimateStart,
         samples: current.batch(sampleStart, 30000), estimates: current.estimateBatch(estimateStart, 30000),
-        header: { format: 'physical-adaptive-phone-checkpoint', version: 1,
+        header: { ...(continuation.current ? { continuation: continuation.current } : {}), format: 'physical-adaptive-phone-checkpoint', version: 1,
           metadata: current.metadata, participant: participant.current, completion: current.completion,
           config: current.estimationConfig, savedThroughMs: performance.now(), tasks: [...allTasks.values()], questionnaires: questionnaires.current.snapshot() } }
     },
     restore: (saved) => {
       recovered.current = readPhoneCheckpoint(saved)
       participant.current = recovered.current.participant
-      setRecoveryMessage('更新前の保存データを復旧しました。計測は中断扱いです。PCへ回収・保存・読戻し確認してから次の記録へ進んでください。')
+      continuation.current = recovered.current.continuation
+      setRecoveryMessage('更新前の保存データを復旧しました。計測は中断扱いです。PCでデータを回収し、「同じ参加者の続きから再開」または「実験を終了して保存」を選んでください。')
     },
   })
 
@@ -101,7 +105,7 @@ export default function Sensor({ identity }: { identity: Identity }) {
     const archive = recovered.current
     if (archive) {
       const completion = archive.completion ?? { endedAtMs: archive.savedThroughMs, stopReason: 'recovered-after-reload' as const }
-      return { type: 'status', streaming: false, visible: !document.hidden, ready: false, permission: 'prompt', error: error.current,
+      return { ...(archive.continuation ? { continuation: archive.continuation } : {}), type: 'status', streaming: false, visible: !document.hidden, ready: false, permission: 'prompt', error: error.current,
         receivedEventCount: archive.samples.length, validEventCount: archive.samples.filter(hasCompleteAcceleration).length,
         participant: archive.participant, recovered: true, recoverySavedThroughMs: archive.savedThroughMs,
         storage: { ready: storage.ready, savedAt: storage.savedAt, error: storage.error, restored: true },
@@ -112,6 +116,7 @@ export default function Sensor({ identity }: { identity: Identity }) {
     }
     const view = current?.view(now)
     return {
+      ...(continuation.current ? { continuation: continuation.current } : {}),
       type: 'status', participant: participant.current, recovered: false, recoverySavedThroughMs: null,
       storage: { ready: storage.ready, savedAt: storage.savedAt, error: storage.error, restored: storage.restored }, streaming: streaming.current, visible: !document.hidden, ready: enabled.current && events.current.valid > 0 && !document.hidden,
       permission: source.current?.getPermission() ?? 'prompt', error: error.current,
@@ -141,7 +146,7 @@ export default function Sensor({ identity }: { identity: Identity }) {
           if (message.type === 'pull-estimates') send({ type: 'estimates', sessionId: message.sessionId, startIndex: message.startIndex, estimates: archive.estimates.slice(message.startIndex, message.startIndex + 100) })
           if (message.type === 'clear' && !clearing.current) {
             clearing.current = true
-            try { await storage.archive(); recovered.current = null; participant.current = null; setRecoveryMessage('') }
+            try { await storage.archive(); recovered.current = null; participant.current = null; continuation.current = undefined; setRecoveryMessage('') }
             finally { clearing.current = false }
           }
         }
@@ -153,7 +158,10 @@ export default function Sensor({ identity }: { identity: Identity }) {
         if (current?.metadata.sessionId === message.sessionId) return
         if (current) throw new Error('前の記録をPCで確認・消去してから開始してください。')
         if (!snapshot().ready) throw new Error('センサーの許可・受信確認が完了していません。')
+        if (message.continuation && JSON.stringify(message.participant) !== JSON.stringify(message.continuation.participant)) throw new Error('続行する参加者が一致しません。')
         participant.current = message.participant
+        continuation.current = message.continuation
+        questionnaires.current = new QuestionnaireBook(message.continuation)
         recorder.current = new MeasurementRecorder({ sessionId: message.sessionId,
           startedAt: new Date().toISOString(), startedAtMs: performance.now(),
           timeOriginMs: performance.timeOrigin, userAgent: navigator.userAgent }, estimationConfig)
@@ -169,11 +177,11 @@ export default function Sensor({ identity }: { identity: Identity }) {
         if (message.type === 'stop') finish('manual')
         if (message.type === 'clear') {
           if (current.active) throw new Error('記録停止後に消去してください。')
-          if (questionnaires.current.answering) throw new Error('アンケートの回答が途中です。送信してから消去してください。')
+          if (questionnaires.current.answering && !message.forContinuation) throw new Error('アンケートの回答が途中です。送信してから消去してください。')
           if (clearing.current) return
           clearing.current = true
           try { await storage.archive() } finally { clearing.current = false }
-          recorder.current = null; participant.current = null; trial.current = null; taskHistory.current.clear();
+          recorder.current = null; participant.current = null; continuation.current = undefined; trial.current = null; taskHistory.current.clear();
           questionnaires.current = new QuestionnaireBook(); setDismissedPracticeId(null); renderSurvey(); renderTask(); error.current = ''
         }
         if (message.type === 'survey-open') {
@@ -181,7 +189,7 @@ export default function Sensor({ identity }: { identity: Identity }) {
           const previous = trial.current?.snapshot()
           if (previous) taskHistory.current.set(previous.id, previous)
           questionnaires.current.open(message.surveyId, message.sessionId, message.target, message.linkedIds,
-            performance.now(), [...taskHistory.current.values()])
+            performance.now(), assessableTasks([...(continuation.current?.tasks ?? []), ...taskHistory.current.values()], continuation.current?.management ?? { participant: null, failures: [], retries: [], controllerRestarts: [] }))
           renderSurvey(); error.current = ''
         }
         if (message.type === 'task-start') {
@@ -256,7 +264,7 @@ export default function Sensor({ identity }: { identity: Identity }) {
   }, [send, advanceTask])
 
   function practiceAvailable() {
-    const all = new Map(taskHistory.current)
+    const all = new Map([...(continuation.current?.tasks ?? []).filter((t) => t.purpose !== 'practice' || t.phase === 'complete').map((t) => [t.id, t] as const), ...taskHistory.current])
     const current = trial.current?.snapshot()
     if (current) all.set(current.id, current)
     return storage.ready && !storage.error && !recovered.current && connected && controller && canStartPractice(recorder.current?.active ?? false, [...all.values()], questionnaires.current.answering)
@@ -309,7 +317,7 @@ export default function Sensor({ identity }: { identity: Identity }) {
       <PhonePreparation connected={connected && controller} storageReady={storage.ready} storageError={storage.error}
         sensorReady={enabled.current && events.current.valid > 0 && !document.hidden} pending={pending}
         recording={recorder.current?.active ?? false} stopped={!!recorder.current?.completion} recovered={!!recovered.current}
-        practiceReady={practiceAvailable()} practiceFinished={dismissedPracticeId !== null}
+        practiceReady={practiceAvailable()} practiceFinished={dismissedPracticeId !== null || !!continuation.current?.tasks.some((t) => t.purpose === 'practice' && t.phase === 'complete')} resuming={!!continuation.current}
         onEnable={() => void enable()} onPractice={startPractice} />
       {recoveryMessage && <p className="notice">{recoveryMessage}</p>}
       {storage.error && <p className="error" role="alert">{storage.error}</p>}

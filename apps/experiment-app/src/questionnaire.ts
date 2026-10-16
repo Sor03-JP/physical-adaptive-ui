@@ -81,20 +81,22 @@ export function conditionTaskIds(tasks: readonly SurveyTask[], mode: 'normal' | 
     .sort((a, b) => Math.max(...b.map((t) => t!.endedAtMs!)) - Math.max(...a.map((t) => t!.endedAtMs!)))
   return blocks[0]?.map((t) => t!.id) ?? []
 }
-export function validSurveyLinks(run: SurveyRun, runs: readonly SurveyRun[], tasks: readonly SurveyTask[]) {
+export function validSurveyLinks(run: SurveyRun, runs: readonly SurveyRun[], tasks: readonly SurveyTask[], previousSessionIds: readonly string[] = []) {
   if (run.target === 'final') {
     const linked = run.linkedIds.map((id) => runs.find((r) => r.id === id && r.phase === 'submitted' && r.target !== 'final'))
-    return linked.every((r) => r !== undefined && r.sessionId === run.sessionId && r.submittedAtMs! <= run.requestedAtMs)
+    return linked.every((r) => r !== undefined && (r.sessionId === run.sessionId ? r.submittedAtMs! <= run.requestedAtMs : previousSessionIds.includes(r.sessionId)))
       && new Set(linked.map((r) => r?.target)).size === 2
   }
   const linked = run.linkedIds.map((id) => tasks.find((t) => t.id === id))
-  return linked.every((t) => t !== undefined && t.purpose !== 'practice' && t.taskId !== 'P1' && t.sessionId === run.sessionId && t.mode === run.target && t.phase === 'complete' && t.endedAtMs! <= run.requestedAtMs)
+  return linked.every((t) => t !== undefined && t.purpose !== 'practice' && t.taskId !== 'P1' && t.mode === run.target && t.phase === 'complete' && (t.sessionId === run.sessionId ? t.endedAtMs! <= run.requestedAtMs : previousSessionIds.includes(t.sessionId)))
     && new Set(linked.map((t) => t?.taskId[0])).size === 1
     && new Set(linked.map((t) => t?.taskId[1])).size === 3
 }
 export class QuestionnaireBook {
   private readonly runs = new Map<string, SurveyRun>()
   private activeId: string | null = null
+  private readonly previous: { questionnaires: SurveyRun[]; previousSessionIds: string[] }
+  constructor(previous: { questionnaires: SurveyRun[]; previousSessionIds: string[] } = { questionnaires: [], previousSessionIds: [] }) { this.previous = previous }
   snapshot(): SurveyRun[] { return structuredClone([...this.runs.values()]) }
   get active(): SurveyRun | null { return structuredClone(this.runs.get(this.activeId ?? '') ?? null) }
   get answering(): boolean { return this.active?.phase === 'answering' }
@@ -106,10 +108,10 @@ export class QuestionnaireBook {
         throw new Error('アンケートの再送内容が一致しません。')
       return // Do not reset answers or reopen a submitted survey on retry.
     }
-    if (this.answering || this.snapshot().some((r) => r.target === target)) throw new Error('現在のアンケートを終了してください。同じ条件は再回答できません。')
+    if (this.answering || [...this.previous.questionnaires, ...this.snapshot()].some((r) => r.target === target)) throw new Error('現在のアンケートを終了してください。同じ条件は再回答できません。')
     const run = surveyRunSchema.parse({ id, sessionId, target, linkedIds, instrumentVersion: 1, items: surveyItems(target),
       phase: 'answering', requestedAtMs: now, updatedAtMs: now, shownAtMs: null, submittedAtMs: null, answers: {} })
-    if (!validSurveyLinks(run, this.snapshot(), tasks)) throw new Error('対応する3課題、または両条件のアンケートが終了していません。')
+    if (!validSurveyLinks(run, [...this.previous.questionnaires, ...this.snapshot()], tasks, this.previous.previousSessionIds)) throw new Error('対応する3課題、または両条件のアンケートが終了していません。')
     this.runs.set(id, run); this.activeId = id
   }
   present(id: string, now: number) {
