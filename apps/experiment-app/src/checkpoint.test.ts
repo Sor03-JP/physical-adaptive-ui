@@ -14,6 +14,24 @@ function saved(delta: CheckpointDelta, samples = delta.samples, estimates = delt
     samples: structuredClone(samples), estimates: structuredClone(estimates), sampleCount: samples.length, estimateCount: estimates.length }
 }
 
+it('keeps v11 files unchanged and restores old checkpoints without assuming the new observation method', () => {
+  const c = new TransferCollector(metadata, 5000)
+  c.research.record({ kind: 'instruction', value: 'walking', controllerAtMs: 51, taskRunId: null, reportedPhase: null })
+  const current = c.export()
+  expect(current.observationProtocol).toEqual({ method: 'state-confirmation', instructionTiming: { firstMs: 4000, secondMs: 11000 } })
+  expect(current.research.events).toHaveLength(1)
+  const { observationProtocol: _protocol, ...previous } = current
+  const old = { ...previous, version: 11 }
+  expect(JSON.parse(writeTransfer(readTransfer(JSON.stringify(old))))).toEqual(old)
+  const disk = { ...saved(c.checkpoint(0, 0)), header: old }
+  const before = structuredClone(disk)
+  const restored = TransferCollector.restore(disk, 6000, 20).export()
+  expect(restored.version).toBe(12)
+  expect(restored.observationProtocol).toBeNull()
+  expect(restored.research.events).toEqual(old.research.events)
+  expect(disk).toEqual(before)
+})
+
 it('restores PC incremental checkpoints without changing raw times, and receives only missing batches', () => {
   const c = new TransferCollector(metadata, 5000)
   c.setParticipant({ participantId: 'p01', group: 'G4', rosterId: 'roster' })
@@ -90,7 +108,7 @@ it('keeps newer task snapshots on recovery, accepts later terminal UI commits, a
   c.receive(0, [sample], 50); c.updateStatus(0, { endedAtMs: 14, stopReason: 'recovered-after-reload' })
   expect(c.export().completion!.endedAtMs).toBe(20) // Retain newer samples already received by PC.
   expect(readTransfer(writeTransfer(c.export()))).toEqual(c.export())
-  const { management: _management, recovery: _recovery, ...v10 } = c.export()
+  const { management: _management, recovery: _recovery, observationProtocol: _observationProtocol, ...v10 } = c.export()
   const old = { ...v10, version: 10 }
   expect(JSON.parse(writeTransfer(readTransfer(JSON.stringify(old))))).toEqual(old)
 })
