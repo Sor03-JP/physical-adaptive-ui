@@ -1,6 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
 import { atom, useAtom } from 'jotai'
 import SavedRecording from './SavedRecording'
+import ContinuationPanel from './ContinuationPanel'
+import { prepareContinuation, continuationIntentSchema } from './continuation'
+import type { ContinuationIntent } from './continuation'
+import { readSetting, saveSetting } from './checkpoint'
+import { loadExperimentRecords, writeExperimentFile } from './experiment-file'
 import ParticipantManager from './ParticipantManager'
 import ExperimentProgress, { experimentProgress } from './ExperimentProgress'
 import StoragePanel from './StoragePanel'
@@ -22,7 +27,7 @@ import type { TaskId } from './tasks'
 import type { Identity, Message, PhoneStatus, Presence } from './protocol'
 import { useMeasurementTransport } from './transport'
 import { MAX_SAMPLES } from './recording'
-import { TransferCollector, writeTransfer } from './transfer'
+import { TransferCollector } from './transfer'
 
 type Command = Extract<Message, { type: 'start' | 'stop' | 'clear' | 'task-start' | 'task-begin' | 'task-answer' | 'survey-open' | 'task-abort' }>
 const panelAtom = atom({ phone: null as PhoneStatus | null, received: 0, estimates: 0, valid: 0, complete: false, pending: '' })
@@ -45,6 +50,9 @@ export default function Controller({ identity }: { identity: Identity }) {
   const historySession = useRef('')
   const managementSaving = useRef(false)
   const details = useRef<HTMLDetailsElement>(null)
+  const continuationIntent = useRef<ContinuationIntent | null>(null)
+  const continuationLoaded = useRef(false)
+  const [continuing, setContinuing] = useState(false)
   const [selectedParticipant, setSelectedParticipant] = useState<Participant | null>(null)
   const [exports, setExports] = useState({ json: false, csv: false })
   function controllerNow() { return performance.now() + performance.timeOrigin - (collector.current?.controllerTimeOriginMs ?? performance.timeOrigin) }
@@ -58,6 +66,24 @@ export default function Controller({ identity }: { identity: Identity }) {
     },
   })
 
+  useEffect(() => {
+    if (!storage.ready || continuationLoaded.current) return
+    let disposed = false
+    void readSetting(`continuation:${identity.room}`).then((saved) => {
+      if (disposed) return
+      const intent = saved == null ? null : continuationIntentSchema.parse(saved)
+      continuationIntent.current = intent; continuationLoaded.current = true
+      if (intent) {
+        setSelectedParticipant(intent.context.participant)
+        if (collector.current?.metadata.sessionId === intent.context.previousSessionId) {
+          command.current = { type: 'clear', sessionId: intent.context.previousSessionId, forContinuation: true }
+        }
+      }
+      refresh()
+    }).catch(() => { if (!disposed) setError('続行設定を読み込めませんでした。記録を保持して保存領域を確認してください。') })
+    return () => { disposed = true }
+  }, [storage.ready, identity.room])
+
   function refresh() {
     const current = collector.current
     if (current && phone.current?.metadata?.sessionId === current.metadata.sessionId && phone.current.completion && !current.recovery && !current.research.busy
@@ -70,8 +96,8 @@ export default function Controller({ identity }: { identity: Identity }) {
       complete: current?.complete ?? false, pending: command.current?.type ?? (managementSaving.current ? 'saving' : '') })
   }
   function receive(packet: Message, receivedAtMs: number) {
-    if (!storage.ready) return
-    receivedAtMs += performance.timeOrigin - (collector.current?.controllerTimeOriginMs ?? performance.timeOrigin)
+    if (!storage.ready || !continuationLoaded.current) return
+    receivedAtMs += performance.timeOrigin - (collector.current?.controllerTimeOriginMs ?? (packet.type === 'status' ? packet.continuation?.controllerTimeOriginMs : undefined) ?? performance.timeOrigin)
     if (packet.type === 'clock-reply') {
       if (collector.current?.research.receive(packet, receivedAtMs)) verified.current = false
     } else if (packet.type === 'status') {
@@ -82,7 +108,8 @@ export default function Controller({ identity }: { identity: Identity }) {
           setError('別の記録を受信しました。現在のデータを保存してから、接続先を確認してください。'); return
         }
         if (!collector.current) {
-          collector.current = new TransferCollector(metadata, performance.timeOrigin, packet.estimationConfig)
+          collector.current = new TransferCollector(metadata, packet.continuation?.controllerTimeOriginMs ?? performance.timeOrigin, packet.estimationConfig)
+          if (packet.continuation) { collector.current.continuation = packet.continuation; collector.current.management = structuredClone(packet.continuation.management) }
           if (!packet.recovered) collector.current.research.begin('start', receivedAtMs)
         }
         collector.current.setParticipant(packet.participant)
@@ -94,6 +121,10 @@ export default function Controller({ identity }: { identity: Identity }) {
       }
       const pending = command.current
       if (pending?.type === 'start' && metadata?.sessionId === pending.sessionId) command.current = null
+      if (metadata?.sessionId === continuationIntent.current?.sessionId) {
+        void saveSetting(`continuation:${identity.room}`, null).then(() => { continuationIntent.current = null; refresh() })
+          .catch(() => setError('続行の開始は確認しましたが、続行設定の整理に失敗しました。記録は保持しています。'))
+      }
       if (pending?.type === 'stop' && metadata?.sessionId === pending.sessionId && packet.completion) command.current = null
       if (pending?.type === 'task-abort' && packet.taskRun?.id === pending.runId && packet.taskRun.phase === 'aborted') command.current = null
       if (pending?.type === 'survey-open' && packet.questionnaires.some((r) => r.id === pending.surveyId)) command.current = null
@@ -104,7 +135,8 @@ export default function Controller({ identity }: { identity: Identity }) {
         clearing.current = true
         void storage.archive().then(() => {
           collector.current = null; command.current = null; verified.current = false
-          setSelectedParticipant(null); setExports({ json: false, csv: false }); refresh()
+          setSelectedParticipant(continuationIntent.current?.context.participant ?? null); setExports({ json: false, csv: false });
+          setMessage(continuationIntent.current ? '元の記録を端末内に保管しました。センサーの準備を確認し、同じ参加者の続きの記録を開始してください。' : ''); refresh()
         }).catch(() => {
           command.current = null; setError('保存済み記録の整理に失敗しました。現在の記録は保持しています。'); refresh()
         }).finally(() => { clearing.current = false })
@@ -156,11 +188,14 @@ export default function Controller({ identity }: { identity: Identity }) {
   }, [send])
 
   function start() {
-    if (!selectedParticipant || !storage.ready || storage.error || !phone.current?.storage.ready || phone.current.storage.error
+    if (!continuationLoaded.current || !selectedParticipant || !storage.ready || storage.error || !phone.current?.storage.ready || phone.current.storage.error
       || collector.current || command.current || !connected || !presence.sensor || !phone.current?.ready) return
     verified.current = false; setError(''); setMessage('')
     setExports({ json: false, csv: false })
-    command.current = { type: 'start', sessionId: crypto.randomUUID(), participant: selectedParticipant }
+    const intent = continuationIntent.current
+    if (intent && JSON.stringify(intent.context.participant) !== JSON.stringify(selectedParticipant)) { setError('続行する参加者が一致しません。'); return }
+    command.current = { type: 'start', sessionId: intent?.sessionId ?? crypto.randomUUID(), participant: selectedParticipant,
+      ...(intent ? { continuation: intent.context } : {}) }
     send(command.current); refresh()
   }
   function stop() {
@@ -193,7 +228,7 @@ export default function Controller({ identity }: { identity: Identity }) {
     const current = collector.current
     if (!current || command.current || !connected || !presence.sensor || reading || current.research.busy || current.recovery) return
     const participant = current.management.participant
-    const step = participant ? nextStep(participant, current.taskRuns, current.surveyRuns, current.management) : null
+    const step = participant ? nextStep(participant, current.progressTaskRuns, current.progressSurveyRuns, current.management) : null
     if (step && (step.kind !== 'survey' || step.target !== target)) { setError('割当済みの順序に従ってアンケートを実施してください。'); return }
     setError(''); verified.current = false
     recordResearch('observation', 'stationary')
@@ -207,12 +242,19 @@ export default function Controller({ identity }: { identity: Identity }) {
       || !current.research.hasStartCalibration || current.research.busy || current.recovery || current.surveyRuns.some((r) => r.phase === 'answering')) return
     const participant = current.management.participant
     if (participant) {
-      const step = nextStep(participant, current.taskRuns, current.surveyRuns, current.management)
+      const step = nextStep(participant, current.progressTaskRuns, current.progressSurveyRuns, current.management)
       if (step.kind !== 'task' || step.taskId !== taskId || step.mode !== mode) { setError('割当済みの次の課題を実施してください。'); return }
       if (current.taskRuns.some((t) => t.purpose === 'main' && t.mode === mode && t.taskId === taskId)) { setError('同じ課題の再実施は、技術的不成立・再実施欄で記録してください。'); return }
     }
     setError(''); verified.current = false
-    command.current = { type: 'task-start', sessionId: current.metadata.sessionId, runId: crypto.randomUUID(), taskId, mode }
+    const resumeRunId = current.continuation?.resumeRunId
+    const resuming = resumeRunId && !current.taskRuns.some((t) => t.id === resumeRunId)
+    if (resuming) {
+      const retry = current.management.retries.find((r) => r.retryRunId === resumeRunId)
+      const original = current.progressTaskRuns.find((t) => t.id === retry?.originalRunId)
+      if (!original || original.taskId !== taskId || original.mode !== mode) { setError('中断した課題と続行先が一致しません。元の記録を保持して確認してください。'); return }
+    }
+    command.current = { type: 'task-start', sessionId: current.metadata.sessionId, runId: resuming ? resumeRunId : crypto.randomUUID(), taskId, mode }
     send(command.current); refresh()
   }
   function markFailure(failure: Omit<Failure, 'recordedAtControllerMs'>) {
@@ -266,31 +308,58 @@ export default function Controller({ identity }: { identity: Identity }) {
     send(command.current); refresh()
   }
   function clear() {
+    if (continuing) return
     if (!connected || !presence.sensor) { setError('iPhoneへ再接続してから、記録を保管してください。PCの記録は保持しています。'); return }
     if ((!collector.current?.complete && !collector.current?.recovery) || command.current || collector.current!.research.busy || (!collector.current!.recovery && collector.current!.surveyRuns.some((r) => r.phase === 'answering'))) return
     if (!verified.current && !window.confirm('現在の記録を終了し、次の計測へ進みます。必要なJSONを保存しましたか？')) return
     command.current = { type: 'clear', sessionId: collector.current.metadata.sessionId }
     send(command.current); refresh(); setMessage('')
   }
-  function download() {
+  async function continueParticipant(reason: string) {
+    const current = collector.current
+    if (!current || !canContinue || continuing) return
+    setContinuing(true)
+    try {
+      const context = prepareContinuation(current.export(), reason, controllerNow(), crypto.randomUUID())
+      current.management = structuredClone(context.management); verified.current = false
+      if (!await storage.flush()) throw new Error('元の記録を端末内に保存できませんでした。記録は保持しています。')
+      const intent = { sessionId: crypto.randomUUID(), context }
+      await saveSetting(`continuation:${identity.room}`, intent)
+      continuationIntent.current = intent
+      command.current = { type: 'clear', sessionId: current.metadata.sessionId, forContinuation: true }
+      setError(''); send(command.current); refresh()
+    } catch (cause) { setError(cause instanceof Error ? cause.message : '続行を準備できませんでした。元の記録は保持しています。') }
+    finally { setContinuing(false) }
+  }
+  function outputRecords() {
+    if (!collector.current) throw new Error('記録がありません。')
+    return loadExperimentRecords(collector.current.export(), storage.journal)
+  }
+  async function download() {
     if (!collector.current || collector.current.research.busy) return
     try {
       const data = collector.current.export()
-      downloadText(writeTransfer(data), `${data.management.participant?.participantId ?? 'unassigned'}_${data.metadata.sessionId}${data.complete && !data.recovery ? '' : '-partial'}.json`, 'application/json')
+      setReading(true)
+      downloadText(writeExperimentFile(await outputRecords()), `${data.management.participant?.participantId ?? 'unassigned'}_${data.metadata.sessionId}${data.complete && !data.recovery ? '' : '-partial'}.json`, 'application/json')
       setExports((s) => ({ ...s, json: true }))
       setError(''); setMessage(data.complete ? '全記録のダウンロードを開始しました。次に「保存したファイルを確認する」で、今ダウンロードしたファイルを選んでください。'
         : '途中データを出力しました。停止確認・全件受信が完了したファイルではありません。')
-    } catch { setError('出力できませんでした。記録は保持しています。') }
+    } catch { setError('続行元を含む全記録を出力できませんでした。記録は保持しています。') }
+    finally { setReading(false) }
   }
 
-  function downloadQuestionnaires() {
+  async function downloadQuestionnaires() {
     const current = collector.current
-    if (!current || reading || !current.surveyRuns.length) return
+    if (!current || reading || !current.progressSurveyRuns.length) return
     try {
-      downloadText(writeQuestionnaireCsv(current.surveyRuns, current.management.participant), `${current.management.participant?.participantId ?? 'unassigned'}_${current.metadata.sessionId}_questionnaires.csv`, 'text/csv;charset=utf-8')
+      setReading(true)
+      const records = await outputRecords()
+      const allSurveys = records.flatMap((record) => 'questionnaires' in record ? record.questionnaires : [])
+      downloadText(writeQuestionnaireCsv(allSurveys, current.management.participant), `${current.management.participant?.participantId ?? 'unassigned'}_${current.metadata.sessionId}_questionnaires.csv`, 'text/csv;charset=utf-8')
       setExports((s) => ({ ...s, csv: true }))
       setError(''); setMessage('アンケートCSVの出力を開始しました。1設問1行で、回答途中も含みます。センサーを含む全記録はJSONで保存してください。')
     } catch { setError('アンケートCSVを出力できませんでした。記録は保持しています。') }
+    finally { setReading(false) }
   }
 
   const status = panel.phone
@@ -300,21 +369,23 @@ export default function Controller({ identity }: { identity: Identity }) {
   const unavailable = !connected || !presence.sensor
   const management = collector.current?.management ?? emptyManagement()
   const participant = management.participant
-  const step = participant && collector.current ? nextStep(participant, collector.current.taskRuns, collector.current.surveyRuns, management) : null
+  const step = participant && collector.current ? nextStep(participant, collector.current.progressTaskRuns, collector.current.progressSurveyRuns, management) : null
   const activeTask = step?.kind === 'active' ? collector.current?.taskRuns.find((t) => t.id === step.runId && t.purpose === 'main') : null
   const planned = step?.kind === 'task' ? step : activeTask ? { taskId: activeTask.taskId as TaskId, mode: activeTask.mode } : null
   const recording = collector.current !== null
   const recovery = !!collector.current?.recovery
   const busy = collector.current?.research.busy ?? false
   const run = status?.taskRun ?? null
-  const surveys = collector.current?.surveyRuns ?? []
+  const surveys = collector.current?.progressSurveyRuns ?? []
   const taskElapsedMs = run?.startedAtMs != null ? (status?.metadata?.startedAtMs ?? 0) + (status?.elapsedMs ?? 0) - run.startedAtMs : 0
   const observationActive = active && !recovery && canRecordObservation(run?.phase ?? null, surveys.some((survey) => survey.phase === 'answering'))
   const progress = experimentProgress({ recording, active, recovery, participant, step, run })
   const ready = !unavailable && !!status?.ready && storage.ready && !storage.error && !!status?.storage.ready && !status.storage.error
   const taskDisabled = unavailable || !active || reading || !!storage.error || !storage.savedAt || !status?.storage.savedAt
     || !!status?.storage.error || !collector.current?.research.hasStartCalibration || busy || surveys.some((r) => r.phase === 'answering')
-  const canClear = !unavailable && (panel.complete || recovery) && !panel.pending && !reading && !busy && (recovery || !surveys.some((r) => r.phase === 'answering'))
+  const canContinue = !unavailable && !active && (panel.complete || recovery) && !panel.pending && !reading && !busy
+    && historySession.current === collector.current?.metadata.sessionId && !storage.error && !status?.storage.error && !continuationIntent.current
+  const canClear = !continuing && !unavailable && (panel.complete || recovery) && !panel.pending && !reading && !busy && (recovery || !surveys.some((r) => r.phase === 'answering'))
   const nextParticipantBlockers = [
     unavailable && '同じ接続コードでiPhoneへ再接続してください。iPhone側の記録を保管する応答が必要です。',
     !panel.complete && !recovery && 'iPhoneの停止確認と全件受信がまだ完了していません。接続を戻してデータを回収してください。',
@@ -333,7 +404,7 @@ export default function Controller({ identity }: { identity: Identity }) {
   function showTroubleshooting() { if (details.current) { details.current.open = true; const retryPanel = details.current.querySelector<HTMLDetailsElement>('[data-retry-panel]'); if (retryPanel) retryPanel.open = true; (retryPanel ?? details.current).scrollIntoView({ behavior: 'smooth', block: 'start' }) } }
   const showTask = active && !recovery && (step?.kind === 'task' || (step?.kind === 'active' && run?.purpose === 'main'))
   const progressManager = (<ParticipantManager variant={collector.current ? 'details' : 'setup'} participant={participant} selected={selectedParticipant} onSelect={setSelectedParticipant}
-      locked={!!collector.current || !!panel.pending} management={management} tasks={collector.current?.taskRuns ?? []} surveys={collector.current?.surveyRuns ?? []}
+      locked={!!collector.current || !!panel.pending || !!continuationIntent.current} management={management} tasks={collector.current?.progressTaskRuns ?? []} surveys={collector.current?.progressSurveyRuns ?? []}
       pending={!!panel.pending || unavailable || !!collector.current?.recovery || historySession.current !== collector.current?.metadata.sessionId} onFailure={markFailure} onRetry={retryTask}
       jsonExported={exports.json} csvExported={exports.csv} verified={verified.current} />
   )
@@ -357,8 +428,9 @@ export default function Controller({ identity }: { identity: Identity }) {
             {presence.sensorUrls.map((url) => <p key={url}><a href={url}>{url}</a></p>)}</>}
           {!unavailable && !status?.ready && <p>iPhone画面を表示し、「センサー利用を許可・準備」を押してください。</p>}
           {progressManager}
-          <p>{!ready ? '接続・センサー受信・両端末の保存準備がそろうと開始できます。' : !selectedParticipant ? '参加者IDを選んでください。' : '説明・同意を確認したら記録を開始し、共通練習へ進みます。'}</p>
-          <button className="primary" disabled={!selectedParticipant || !ready || !!panel.pending || reading} onClick={start}>記録を開始して練習へ</button>
+          {continuationIntent.current && <p className="notice">同じ参加者の続きから再開します。完了済みの課題・送信済みアンケートは引き継ぎます。</p>}
+          <p>{!ready ? '接続・センサー受信・両端末の保存準備がそろうと開始できます。' : !selectedParticipant ? '参加者IDを選んでください。' : continuationIntent.current ? '準備ができたら、同じ参加者の続きの記録を開始してください。' : '説明・同意を確認したら記録を開始し、共通練習へ進みます。'}</p>
+          <button className="primary" disabled={!selectedParticipant || !ready || !!panel.pending || reading || !continuationLoaded.current} onClick={start}>{continuationIntent.current ? '同じ参加者の続きの記録を開始' : '記録を開始して練習へ'}</button>
         </> : waitingForPhone ? <p role="status">同じ接続コードのiPhoneを待っています。現在の記録は保持しています。必要なデータは「詳細・トラブル対応」から出力できます。</p> : <>
           {busy && <p className="notice" role="status">時刻合わせ中です。完了するまでお待ちください。</p>}
           {active && !busy && !collector.current?.research.hasStartCalibration && <><p className="error">開始時の時刻合わせが成立していません。</p>
@@ -380,6 +452,10 @@ export default function Controller({ identity }: { identity: Identity }) {
                 <p>受信件数：iPhone {status?.count ?? 0} ／ PC {panel.received} 件</p>
                 {!panel.complete && <p className="notice">未受信または途中のデータがあります。回収状況を確認してください。途中データも出力できます。</p>}
                 {step?.kind !== 'done' && <p className="notice">全課題・アンケートが終了した記録ではありません。中断した内容を確認して保存してください。</p>}
+                {participant && step?.kind !== 'done' && <ContinuationPanel participantId={participant.participantId}
+                  disabled={!canContinue || continuing} onContinue={(reason) => void continueParticipant(reason)} />}
+                <h3>実験を終了する・次の参加者へ進む場合</h3>
+                {collector.current?.continuation && <p>今回の記録と、続行元の記録をまとめて1つのJSONに保存します。</p>}
                 <h3>1. 実験データをPCに保存する</h3>
                 <p>下のボタンでファイルをダウンロードします。全記録には、センサー・観察・指示・課題・アンケートのすべてが含まれます。</p>
                 <div className="controls">
@@ -388,7 +464,7 @@ export default function Controller({ identity }: { identity: Identity }) {
                 </div>
                 <p><small>全記録のダウンロード：{exports.json ? 'ボタン操作済み' : '未操作'}{surveys.length > 0 && ` ／ アンケート表：${exports.csv ? 'ボタン操作済み' : '未操作'}`}。実際に保存できたかは次の手順で確認します。</small></p>
                 {exports.json ? <SavedRecording guided key={collector.current?.metadata.sessionId} collector={collector} active={active}
-                  reading={reading || busy} setReading={setReading} onVerified={() => { verified.current = true; refresh() }} />
+                  reading={reading || busy} setReading={setReading} getRecords={outputRecords} onVerified={() => { verified.current = true; refresh() }} />
                   : <><h3>2. 保存したファイルを確認する</h3><p>全記録をダウンロードすると、ここで保存確認ができます。</p></>}
                 {verified.current && <p className="success">保存確認が完了しました。ファイルを別の保存先にもコピーしておいてください。</p>}
                 <h3>3. 次の参加者を準備する</h3>

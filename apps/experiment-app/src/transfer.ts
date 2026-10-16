@@ -5,6 +5,7 @@ import type { LoadedCheckpoint, CheckpointDelta } from './checkpoint'
 import { surveyListSchema, validSurveyLinks } from './questionnaire'
 import type { SurveyRun } from './questionnaire'
 import { ResearchRecorder, researchLogSchema, observationProtocolSchema } from './research-log'
+import { continuationSchema } from './continuation'
 import { currentObservationProtocol } from './observation-plan'
 import { MAX_SAMPLES, metadataSchema, sampleSchema, legacySampleSchema, completionSchema, hasValidSampleTimes, hasConsistentReceivedIntervals, hasCompleteAcceleration } from './recording-schema'
 import type { RecordingMetadata, Completion } from './recording-schema'
@@ -46,7 +47,7 @@ const version10TransferBase = version9TransferBase.extend({ version: z.literal(1
 const version11TransferBase = version10TransferBase.extend({ version: z.literal(11), management: managementSchema,
   recovery: z.strictObject({ phoneSavedThroughMs: z.number().finite().nonnegative(), detectedAt: z.string().datetime() }).nullable(),
 })
-const currentTransferBase = version11TransferBase.extend({ version: z.literal(12), observationProtocol: observationProtocolSchema.nullable() })
+const currentTransferBase = version11TransferBase.extend({ version: z.literal(12), observationProtocol: observationProtocolSchema.nullable(), continuation: continuationSchema.optional() })
 const version6TransferBase = version7TransferBase.extend({
   version: z.literal(6), tasks: z.array(previousAdaptiveTaskRunSchema).max(100),
 })
@@ -82,14 +83,20 @@ function validateTransfer(value: z.infer<typeof currentTransferBase> | z.infer<t
     || !hasValidEstimateTimes(inference.estimates, value.metadata.startedAtMs, value.completion?.endedAtMs))) {
     context.addIssue({ code: 'custom', message: '推定ログの件数・設定・時刻が不整合です。' })
   }
-  if ('management' in value && (value.management.failures.some((f) => !value.tasks.some((t) => t.id === f.originalRunId && t.purpose === 'main'))
+  const continuation = 'continuation' in value ? value.continuation : undefined
+  const allTasks = 'tasks' in value ? [...(continuation?.tasks ?? []), ...value.tasks] : []
+  const allSurveys = 'questionnaires' in value ? [...(continuation?.questionnaires ?? []), ...value.questionnaires] : []
+  if (continuation && (continuation.previousSessionIds.includes(value.metadata.sessionId)
+    || JSON.stringify(continuation.participant) !== JSON.stringify('management' in value ? value.management.participant : null)))
+    context.addIssue({ code: 'custom', message: '続行元と参加者が一致しません。' })
+  if ('management' in value && (value.management.failures.some((f) => !allTasks.some((t) => t.id === f.originalRunId && 'purpose' in t && t.purpose === 'main'))
     || value.management.retries.some((r) => {
-      const original = value.tasks.find((t) => t.id === r.originalRunId)
-      const retry = value.tasks.find((t) => t.id === r.retryRunId)
-      return !original || (retry && (retry.taskId !== original.taskId || retry.mode !== original.mode || retry.purpose !== 'main'))
+      const original = allTasks.find((t) => t.id === r.originalRunId)
+      const retry = allTasks.find((t) => t.id === r.retryRunId)
+      return !original || (retry && (retry.taskId !== original.taskId || retry.mode !== original.mode || !('purpose' in retry) || retry.purpose !== 'main'))
     }))) context.addIssue({ code: 'custom', message: '再実施と元課題の対応が不整合です。' })
   if ('questionnaires' in value && value.questionnaires.some((run) => run.sessionId !== value.metadata.sessionId
-    || run.requestedAtMs < value.metadata.startedAtMs || !validSurveyLinks(run, value.questionnaires, value.tasks))) {
+    || run.requestedAtMs < value.metadata.startedAtMs || !validSurveyLinks(run, allSurveys, allTasks, continuation?.previousSessionIds))) {
     context.addIssue({ code: 'custom', message: 'アンケートと課題・計測記録の対応が不整合です。' })
   }
   if ('research' in value && value.research.rounds.some((r) => r.exchanges.some((s) => s.phoneTimeOriginMs !== value.metadata.timeOriginMs))) {
@@ -132,6 +139,7 @@ export class TransferCollector {
 
   management: Management = emptyManagement()
   recovery: Transfer['recovery'] = null
+  continuation: Transfer['continuation']
   observationProtocol: Transfer['observationProtocol'] = structuredClone(currentObservationProtocol)
 
   readonly research: ResearchRecorder
@@ -149,7 +157,7 @@ export class TransferCollector {
     collector.expectedEstimateCount = data.inference.expectedCount; collector.completion = data.completion
     collector.completeAccelerationCount = data.samples.filter(hasCompleteAcceleration).length
     data.tasks.forEach((t) => collector.tasks.set(t.id, t)); collector.questionnaires = data.questionnaires
-    collector.management = data.management; collector.recovery = data.recovery; collector.observationProtocol = data.observationProtocol
+    collector.management = data.management; collector.recovery = data.recovery; collector.observationProtocol = data.observationProtocol; collector.continuation = data.continuation
     const resumedAtMs = now + currentTimeOriginMs - data.controllerTimeOriginMs
     collector.research.restore(data.research, resumedAtMs)
     collector.management.controllerRestarts.push({ timeOriginMs: currentTimeOriginMs, controllerAtMs: resumedAtMs })
@@ -170,18 +178,20 @@ export class TransferCollector {
     if (!original || !['complete', 'aborted'].includes(original.phase)) throw new Error('元課題を終了・中断してから再実施してください。')
     this.management = managementSchema.parse({ ...this.management, retries: [...this.management.retries, retry] })
   }
-  get assessableTaskRuns(): TaskRun[] { return assessableTasks(this.taskRuns, this.management) }
+  get assessableTaskRuns(): TaskRun[] { return assessableTasks(this.progressTaskRuns, this.management) }
   checkpoint(sampleStart: number, estimateStart: number): CheckpointDelta {
     return { sessionId: this.metadata.sessionId, header: this.snapshot(false), sampleStart, estimateStart,
       samples: this.samples.slice(sampleStart), estimates: this.estimates.slice(estimateStart) }
   }
   get count(): number { return this.samples.length }
   get estimateCount(): number { return this.estimates.length }
+  get progressTaskRuns(): TaskRun[] { return [...structuredClone((this.continuation?.tasks ?? []).filter((t) => t.purpose !== 'practice' || t.phase === 'complete')), ...this.taskRuns] }
+  get progressSurveyRuns(): SurveyRun[] { return [...structuredClone(this.continuation?.questionnaires ?? []), ...this.surveyRuns] }
   get taskRuns(): TaskRun[] { return structuredClone([...this.tasks.values()]) }
   get surveyRuns(): SurveyRun[] { return structuredClone(this.questionnaires) }
   updateQuestionnaires(runs: SurveyRun[]): boolean {
     const parsed = surveyListSchema.parse(runs)
-    if (parsed.some((run) => run.sessionId !== this.metadata.sessionId || !validSurveyLinks(run, parsed, this.taskRuns))) return false
+    if (parsed.some((run) => run.sessionId !== this.metadata.sessionId || !validSurveyLinks(run, [...(this.continuation?.questionnaires ?? []), ...parsed], this.progressTaskRuns, this.continuation?.previousSessionIds))) return false
     // Ignore stale snapshots; submitted answers are immutable.
     if (this.questionnaires.some((old) => {
       const next = parsed.find((r) => r.id === old.id)
@@ -254,6 +264,7 @@ export class TransferCollector {
 
   private snapshot(includeSamples: boolean): Transfer {
     return {
+      ...(this.continuation ? { continuation: structuredClone(this.continuation) } : {}),
       format: 'physical-adaptive-motion-transfer', version: 12, observationProtocol: structuredClone(this.observationProtocol), management: structuredClone(this.management), recovery: this.recovery,
       metadata: this.metadata, completion: this.completion, samples: includeSamples ? this.samples.slice() : [],
       controllerTimeOriginMs: this.controllerTimeOriginMs, expectedCount: this.expectedCount,

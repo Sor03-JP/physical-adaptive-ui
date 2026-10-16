@@ -56,7 +56,7 @@ export function assessableTasks(tasks: readonly TaskRun[], management: Managemen
 export type NextStep = { kind: 'practice' | 'done' } | { kind: 'task'; taskId: TaskId; mode: z.infer<typeof experimentModeSchema> }
   | { kind: 'active'; runId: string } | { kind: 'survey'; target: SurveyTarget }
 export function nextStep(participant: Participant, tasks: readonly TaskRun[], surveys: readonly SurveyRun[], management: Management): NextStep {
-  const active = tasks.findLast((t) => !['complete', 'aborted'].includes(t.phase))
+  const active = tasks.findLast((t) => !['complete', 'aborted'].includes(t.phase) && !management.failures.some((f) => f.originalRunId === t.id))
   if (active) return { kind: 'active', runId: active.id }
   const answering = surveys.find((s) => s.phase === 'answering')
   if (answering) return { kind: 'survey', target: answering.target }

@@ -6,6 +6,7 @@ import { experimentModeSchema } from './adaptation'
 import { BATCH_SIZE, MAX_SAMPLES, metadataSchema, sampleSchema, completionSchema } from './recording-schema'
 import { estimateSchema, estimationConfigSchema } from './estimation'
 import { taskIdSchema, taskRunSchema } from './task-schema'
+import { continuationSchema } from './continuation'
 
 export const joinSchema = z.strictObject({
   room: z.string().regex(/^[a-z0-9-]{1,40}$/), role: z.enum(['controller', 'sensor']),
@@ -14,11 +15,11 @@ export type Identity = z.infer<typeof joinSchema>
 export const messageSchema = z.discriminatedUnion('type', [
   z.strictObject({ type: z.literal('clock-probe'), sessionId: z.string().min(1), probeId: z.string().min(1) }),
   clockReplySchema,
-  z.strictObject({ type: z.literal('start'), sessionId: z.string().min(1), participant: participantSchema.nullable().default(null) }),
+  z.strictObject({ type: z.literal('start'), sessionId: z.string().min(1), participant: participantSchema.nullable().default(null), continuation: continuationSchema.optional() }),
   z.strictObject({ type: z.literal('stop'), sessionId: z.string().min(1) }),
   z.strictObject({ type: z.literal('pull-tasks'), sessionId: z.string().min(1) }),
   z.strictObject({ type: z.literal('task-history'), sessionId: z.string().min(1), tasks: z.array(taskRunSchema).max(100) }),
-  z.strictObject({ type: z.literal('clear'), sessionId: z.string().min(1) }),
+  z.strictObject({ type: z.literal('clear'), sessionId: z.string().min(1), forContinuation: z.literal(true).optional() }),
   z.strictObject({ type: z.literal('pull'), sessionId: z.string().min(1), startIndex: z.int().min(0).max(MAX_SAMPLES) }),
   z.strictObject({ type: z.literal('pull-estimates'), sessionId: z.string().min(1), startIndex: z.int().min(0).max(MAX_SAMPLES) }),
   z.strictObject({ type: z.literal('task-start'), sessionId: z.string().min(1), runId: z.string().min(1), taskId: taskIdSchema, mode: experimentModeSchema.default('normal') }),
@@ -32,6 +33,7 @@ export const messageSchema = z.discriminatedUnion('type', [
     receivedEventCount: z.int().nonnegative(), validEventCount: z.int().nonnegative(),
     recoveredTasks: z.array(taskRunSchema).max(100),
     participant: participantSchema.nullable(), recovered: z.boolean(), recoverySavedThroughMs: z.number().finite().nonnegative().nullable(),
+    continuation: continuationSchema.optional(),
     storage: z.strictObject({ ready: z.boolean(), error: z.string(), savedAt: z.string(), restored: z.boolean() }),
     questionnaires: surveyListSchema,
     metadata: metadataSchema.nullable(), completion: completionSchema.nullable(), taskRun: taskRunSchema.nullable(),

@@ -62,6 +62,9 @@ body:has(.questionnaire-screen) { overflow: hidden; }
 .phone-next .primary { width: 100%; margin: 12px 0; }
 .phone-stage { color: #526073; font-size: 14px; }
 .phone-details { border-top: 1px solid #d4dce5; margin-top: 24px; }
+.continuation-panel { border: 2px solid #174f97; border-radius: 8px; padding: 12px; margin: 16px 0 24px; }
+.continuation-panel label { display: block; margin: 12px 0; line-height: 1.6; }
+.continuation-panel input:not([type="checkbox"]) { display: block; width: 100%; box-sizing: border-box; border: 1px solid #a4afbe; border-radius: 6px; padding: 8px; }
 .observation-group { border: 1px solid #d4dce5; border-radius: 8px; padding: 12px; margin: 12px 0; }
 .observation-group h3 { font-weight: 700; }
 .observation-buttons { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
