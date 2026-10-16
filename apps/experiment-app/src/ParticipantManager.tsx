@@ -59,14 +59,14 @@ export default function ParticipantManager({ participant, selected, onSelect, lo
     {variant !== 'setup' && <>
     {current && <>
       <p className="status">次の操作：{step?.kind === 'practice' ? 'iPhoneで共通練習を実施' : step?.kind === 'active' ? '現在の課題を進行' : step?.kind === 'task' ? `${describe(step.mode, step.taskId[0]!)}・${step.taskId}の問題文を表示`
-        : step?.kind === 'survey' ? step.target === 'final' ? '最後の比較・自由回答' : `${step.target === 'normal' ? '固定UI' : '自動適応UI'}後のアンケート` : '記録停止・保存・読戻し確認'}</p>
+        : step?.kind === 'survey' ? step.target === 'final' ? '最後の比較・自由回答' : `${step.target === 'normal' ? '固定UI' : '自動適応UI'}後のアンケート` : '記録停止・データ保存・保存ファイルの確認'}</p>
       <ol><li>練習：{tasks.some((t) => t.purpose === 'practice' && t.phase === 'complete') ? '終了' : '未終了'}</li>
         {assignments[current.group].map((block) => <li key={block.mode}>{describe(block.mode, block.set)}：
           {[1, 2, 3].map((n) => `${block.set}${n} ${tasks.some((t) => t.taskId === `${block.set}${n}` && t.mode === block.mode && t.phase === 'complete' && !management.failures.some((f) => f.originalRunId === t.id)) ? '終了' : '未終了'}`).join(' ／ ')}
           、アンケート {surveys.some((s) => s.target === block.mode && s.phase === 'submitted') ? '回答済み' : '未完了'}</li>)}
         <li>最後の比較：{surveys.some((s) => s.target === 'final' && s.phase === 'submitted') ? '回答済み' : '未完了'}</li>
       </ol></>}
-    <p>保存確認：JSON出力操作 {jsonExported ? '済' : '未'} ／ CSV出力操作 {csvExported ? '済' : '未'} ／ JSON読戻し一致 {verified ? '確認済み' : '未確認'}</p>
+    <p>保存の進み具合：全記録のダウンロード操作 {jsonExported ? '済' : '未'} ／ アンケート表のダウンロード操作 {csvExported ? '済' : '未'} ／ 保存ファイルの一致 {verified ? '確認済み' : '未確認'}</p>
     <details data-retry-panel><summary>技術的不成立・再実施（元の記録を保持）</summary>
       <p>誤判定・unknown・誤答・観察漏れは再実施の理由にしません。技術的不成立のみ、原因解消と本人の同意後に元課題につき1回までです。</p>
       <label>元の課題 <select value={originalId} onChange={(event) => { setOriginalId(event.currentTarget.value); setConsent(false); setReason('') }}>

@@ -263,6 +263,7 @@ export default function Controller({ identity }: { identity: Identity }) {
     send(command.current); refresh()
   }
   function clear() {
+    if (!connected || !presence.sensor) { setError('iPhoneへ再接続してから、記録を保管してください。PCの記録は保持しています。'); return }
     if ((!collector.current?.complete && !collector.current?.recovery) || command.current || collector.current!.research.busy || (!collector.current!.recovery && collector.current!.surveyRuns.some((r) => r.phase === 'answering'))) return
     if (!verified.current && !window.confirm('現在の記録を終了し、次の計測へ進みます。必要なJSONを保存しましたか？')) return
     command.current = { type: 'clear', sessionId: collector.current.metadata.sessionId }
@@ -274,7 +275,7 @@ export default function Controller({ identity }: { identity: Identity }) {
       const data = collector.current.export()
       downloadText(writeTransfer(data), `${data.management.participant?.participantId ?? 'unassigned'}_${data.metadata.sessionId}${data.complete && !data.recovery ? '' : '-partial'}.json`, 'application/json')
       setExports((s) => ({ ...s, json: true }))
-      setError(''); setMessage(data.complete ? `JSON出力を開始しました。アンケートは${data.questionnaires.filter((r) => r.phase === 'submitted').length}件回答済み、${data.questionnaires.filter((r) => r.phase === 'answering').length}件回答途中です。保存ファイルをPCで読み戻して確認してください。`
+      setError(''); setMessage(data.complete ? '全記録のダウンロードを開始しました。次に「保存したファイルを確認する」で、今ダウンロードしたファイルを選んでください。'
         : '途中データを出力しました。停止確認・全件受信が完了したファイルではありません。')
     } catch { setError('出力できませんでした。記録は保持しています。') }
   }
@@ -309,7 +310,18 @@ export default function Controller({ identity }: { identity: Identity }) {
   const ready = !unavailable && !!status?.ready && storage.ready && !storage.error && !!status?.storage.ready && !status.storage.error
   const taskDisabled = unavailable || !active || reading || !!storage.error || !storage.savedAt || !status?.storage.savedAt
     || !!status?.storage.error || !collector.current?.research.hasStartCalibration || busy || surveys.some((r) => r.phase === 'answering')
-  const canClear = (panel.complete || recovery) && !panel.pending && !reading && !busy && (recovery || !surveys.some((r) => r.phase === 'answering'))
+  const canClear = !unavailable && (panel.complete || recovery) && !panel.pending && !reading && !busy && (recovery || !surveys.some((r) => r.phase === 'answering'))
+  const nextParticipantBlockers = [
+    unavailable && '同じ接続コードでiPhoneへ再接続してください。iPhone側の記録を保管する応答が必要です。',
+    !panel.complete && !recovery && 'iPhoneの停止確認と全件受信がまだ完了していません。接続を戻してデータを回収してください。',
+    !!panel.pending && 'iPhoneの操作応答を待っています。',
+    busy && '時刻合わせの完了を待っています。',
+    reading && 'JSONファイルを読み込んでいます。',
+    !recovery && surveys.some((survey) => survey.phase === 'answering') && 'アンケートが回答途中です。iPhoneで送信してから進んでください。',
+    !exports.json && '手順1の「全記録をダウンロード」を押してください。',
+    exports.json && !verified.current && '手順2で、今ダウンロードした「.json」ファイルを選んでください。',
+    surveys.length > 0 && !exports.csv && '手順1の「アンケート表をダウンロード」も押してください。',
+  ].filter((reason): reason is string => typeof reason === 'string')
   const showSurvey = active && !recovery && step?.kind === 'survey'
   const waitingForPhone = recording && status?.metadata?.sessionId !== collector.current?.metadata.sessionId
   const requiresRetry = step?.kind === 'task' && !!collector.current?.taskRuns.some((task) => task.purpose === 'main' && task.taskId === step.taskId && task.mode === step.mode)
@@ -364,15 +376,24 @@ export default function Controller({ identity }: { identity: Identity }) {
                 <p>受信件数：iPhone {status?.count ?? 0} ／ PC {panel.received} 件</p>
                 {!panel.complete && <p className="notice">未受信または途中のデータがあります。回収状況を確認してください。途中データも出力できます。</p>}
                 {step?.kind !== 'done' && <p className="notice">全課題・アンケートが終了した記録ではありません。中断した内容を確認して保存してください。</p>}
-                <ol className="save-checklist"><li>JSON出力：{exports.json ? '操作済み' : '未'}</li><li>アンケートCSV出力：{surveys.length ? exports.csv ? '操作済み' : '未' : '回答記録なし'}</li><li>JSON読戻し一致：{verified.current ? '確認済み' : '未確認'}</li></ol>
+                <h3>1. 実験データをPCに保存する</h3>
+                <p>下のボタンでファイルをダウンロードします。全記録には、センサー・観察・指示・課題・アンケートのすべてが含まれます。</p>
                 <div className="controls">
-                  <button className={!exports.json ? 'primary' : undefined} disabled={reading || busy} onClick={download}>{exports.json ? 'JSONを再出力' : '1. JSONをPCに出力'}</button>
-                  {surveys.length > 0 && <button className={exports.json && !exports.csv ? 'primary' : undefined} disabled={!exports.json || reading || busy} onClick={downloadQuestionnaires}>2. アンケートCSVをPCに出力</button>}
+                  <button className={!exports.json ? 'primary' : undefined} disabled={reading || busy} onClick={download}>{exports.json ? '全記録をもう一度ダウンロード（.json）' : '全記録をダウンロード（.json）'}</button>
+                  {surveys.length > 0 && <button className={exports.json && !exports.csv ? 'primary' : undefined} disabled={!exports.json || reading || busy} onClick={downloadQuestionnaires}>アンケート表をダウンロード（.csv）</button>}
                 </div>
-                {exports.json && <SavedRecording key={collector.current?.metadata.sessionId} collector={collector} active={active}
-                  reading={reading || busy} setReading={setReading} onVerified={() => { verified.current = true; refresh() }} />}
-                {verified.current && <p className="success">JSONの一致を確認しました。出力したファイルを別の保存先にもバックアップしてください。</p>}
-                <button className="primary" disabled={!canClear || !exports.json || !verified.current || (surveys.length > 0 && !exports.csv)} onClick={clear}>記録を保管して次の参加者へ</button>
+                <p><small>全記録のダウンロード：{exports.json ? 'ボタン操作済み' : '未操作'}{surveys.length > 0 && ` ／ アンケート表：${exports.csv ? 'ボタン操作済み' : '未操作'}`}。実際に保存できたかは次の手順で確認します。</small></p>
+                {exports.json ? <SavedRecording guided key={collector.current?.metadata.sessionId} collector={collector} active={active}
+                  reading={reading || busy} setReading={setReading} onVerified={() => { verified.current = true; refresh() }} />
+                  : <><h3>2. 保存したファイルを確認する</h3><p>全記録をダウンロードすると、ここで保存確認ができます。</p></>}
+                {verified.current && <p className="success">保存確認が完了しました。ファイルを別の保存先にもコピーしておいてください。</p>}
+                <h3>3. 次の参加者を準備する</h3>
+                <p>iPhoneとPCを次の参加者用に切り替えます。保存済みのファイルと端末内の過去記録は残ります。</p>
+                {nextParticipantBlockers.length > 0 && <div className="notice" role="status">
+                  <p>次の参加者へ進むために必要な操作：</p>
+                  <ul className="save-checklist">{nextParticipantBlockers.map((reason) => <li key={reason}>{reason}</li>)}</ul>
+                </div>}
+                <button className="primary" disabled={!canClear || !exports.json || !verified.current || (surveys.length > 0 && !exports.csv)} onClick={clear}>保存確認を終えて、次の参加者へ</button>
               </>}
           </>}
         </>}
