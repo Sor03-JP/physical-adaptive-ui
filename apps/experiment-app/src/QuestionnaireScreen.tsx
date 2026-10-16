@@ -8,10 +8,14 @@ export default function QuestionnaireScreen({ run, onPresent, onAnswer, onSubmit
   onSubmit: (id: string) => void
 }) {
   useLayoutEffect(() => { onPresent(run.id) }, [run.id, onPresent])
+  const required = run.items.filter((item) => item.required)
+  const answered = required.filter((item) => run.answers[item.id] !== undefined).length
   return <div className="questionnaire-screen" role="region" aria-label={surveyTitle[run.target]}>
     <h1>{surveyTitle[run.target]}</h1>
     {run.phase === 'submitted' ? <p role="status">回答を記録しました。実験者がPCで受信を確認します。案内をお待ちください。</p> : <form onSubmit={(event) => { event.preventDefault(); onSubmit(run.id) }}>
       <p>立ち止まった状態で回答してください。回答時間の制限はありません。</p>
+      <p>各項目を選び、最後に「回答を送信」を押してください。下へスクロールすると続きがあります。</p>
+      <p role="status">必須項目：{answered}／{required.length}項目回答済み</p>
       {run.target !== 'final' && <p>直前の3課題について、1「全くそう思わない」〜5「とてもそう思う」で回答してください。</p>}
       {run.items.map((item) => <fieldset key={item.id}>
         <legend>{item.text}{!item.required && '（任意）'}</legend>

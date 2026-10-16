@@ -12,6 +12,7 @@ import type { Participant } from './management'
 import { estimationConfig } from './estimation'
 import TransitTaskScreen from './TransitTaskScreen'
 import QuestionnaireScreen from './QuestionnaireScreen'
+import PhonePreparation from './PhonePreparation'
 import { QuestionnaireBook } from './questionnaire'
 import { TransitTrial, canStartPractice } from './tasks'
 import type { PresentationMetrics, RenderedTaskContext } from './adaptation'
@@ -304,16 +305,24 @@ export default function Sensor({ identity }: { identity: Identity }) {
       onAnswer={(value) => { trial.current?.answer(value, performance.now()); renderTask(); send(snapshot()); void storage.flush() }}
       onTap={(x, y, action) => { trial.current?.tap(performance.now(), x, y, action) }}
       onStop={() => { finish('manual'); send(snapshot()) }} />}
-    {recoveryMessage && <p className="notice" role="status">{recoveryMessage}</p>}
-    <p>端末内保存：{storage.ready ? '準備済み' : '準備中'} ／ 最終保存：{storage.savedAt || '未保存'}</p>
-    {storage.error && <p className="error" role="alert">{storage.error}</p>}
-    <h2>iPhone：センサー取得</h2>
-    <p role="status">{status}</p>
-    <p>PC接続：{connected && controller ? '接続済み' : '待機中'}</p>
-    <button disabled={pending || !storage.ready || !!recovered.current} onClick={() => void enable()}>センサー利用を許可・準備</button>
-    <p>許可後はこの画面を表示したままにしてください。データの確認・開始停止・出力はPCで行います。</p>
-    <button disabled={!practiceAvailable()} onClick={startPractice}>練習問題を表示</button>
-    <p>PCで記録を開始した後、本番前に1問練習できます。自動適応を体験し、選択・選び直し・時刻回答を確認します。練習記録は本番とは区別して保存します。</p>
-    <button onClick={() => { finish('manual'); send(snapshot()) }}>緊急停止</button>
+    {!survey && (!taskRun || taskRun.id === dismissedPracticeId) && <>
+      <PhonePreparation connected={connected && controller} storageReady={storage.ready} storageError={storage.error}
+        sensorReady={enabled.current && events.current.valid > 0 && !document.hidden} pending={pending}
+        recording={recorder.current?.active ?? false} stopped={!!recorder.current?.completion} recovered={!!recovered.current}
+        practiceReady={practiceAvailable()} practiceFinished={dismissedPracticeId !== null}
+        onEnable={() => void enable()} onPractice={startPractice} />
+      {recoveryMessage && <p className="notice">{recoveryMessage}</p>}
+      {storage.error && <p className="error" role="alert">{storage.error}</p>}
+      {error.current && <p className="error" role="alert">{error.current}</p>}
+      <details className="phone-details">
+        <summary>接続・保存の詳細（実験者用）</summary>
+        <p>PC接続：{connected && controller ? '接続済み' : '待機中'}</p>
+        <p>端末内保存：{storage.ready ? '準備済み' : '準備中'} ／ 最終保存：{storage.savedAt || '未保存'}</p>
+        <p>{status}</p>
+        <p>記録は端末内にも順次保存します。データの確認・保存・出力はPCで行います。</p>
+      </details>
+      <p><small>画面を開いたままにし、再読み込みしないでください。</small></p>
+      <button className="stop-recording" onClick={() => { finish('manual'); send(snapshot()) }}>緊急停止</button>
+    </>}
   </section>
 }
