@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useEffectEvent, useRef, useState } from 'react'
 import { createBrowserMotionSource } from '@physical-adaptive/device-motion'
 import type { DeviceMotionSource, MotionSample } from '@physical-adaptive/device-motion'
 import { hasCompleteAcceleration, MeasurementRecorder } from './recording'
@@ -226,13 +226,15 @@ export default function Sensor({ identity }: { identity: Identity }) {
     error: (message) => { error.current = message },
   })
 
+  // Read committed storage state without restarting the sensor lifecycle on each save.
+  const readStatus = useEffectEvent(snapshot)
   useEffect(() => {
     const generationRef = generation
     const timer = window.setInterval(() => {
       recorder.current?.evaluate(performance.now())
       if (recorder.current?.completion?.stopReason === 'capacity') finish('capacity')
       advanceTask()
-      const current = snapshot()
+      const current = readStatus()
       send(current)
       setStatus(error.current || (recorder.current?.active ? '記録中です。操作はPCで行います。'
         : current.ready ? '準備済みです。PCから記録を開始できます。' : 'センサーの許可・受信を確認してください。'))
@@ -240,7 +242,7 @@ export default function Sensor({ identity }: { identity: Identity }) {
     const hidden = () => {
       if (!document.hidden) return
       finish('page-hidden'); enabled.current = false; void storage.flush()
-      send(snapshot())
+      send(readStatus())
     }
     const unload = (event: BeforeUnloadEvent) => { if (recorder.current) event.preventDefault() }
     document.addEventListener('visibilitychange', hidden)
