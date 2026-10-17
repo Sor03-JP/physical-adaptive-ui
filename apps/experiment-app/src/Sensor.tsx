@@ -2,6 +2,7 @@ import { useCallback, useEffect, useEffectEvent, useRef, useState } from 'react'
 import { createBrowserMotionSource } from '@physical-adaptive/device-motion'
 import type { DeviceMotionSource, MotionSample } from '@physical-adaptive/device-motion'
 import { hasCompleteAcceleration, MeasurementRecorder, MAX_SAMPLES } from './recording'
+import { BATCH_SIZE } from './recording-schema'
 import type { StopReason } from './recording'
 import type { Identity, Message, PhoneStatus } from './protocol'
 import { useMeasurementTransport } from './transport'
@@ -49,8 +50,7 @@ export default function Sensor({ identity }: { identity: Identity }) {
   const presentTask = useCallback((metrics: PresentationMetrics | null = null, rendered?: RenderedTaskContext) => {
     const current = trial.current
     if (!current) return
-    const previous = current.snapshot().phase
-    if (current.present(performance.now(), metrics, rendered) || current.snapshot().phase !== previous) renderTask()
+    if (current.present(performance.now(), metrics, rendered)) renderTask()
   }, [renderTask])
   const advanceTask = useCallback(() => {
     const now = performance.now()
@@ -102,13 +102,14 @@ export default function Sensor({ identity }: { identity: Identity }) {
     const archive = recovered.current
     if (archive) {
       const completion = archive.completion ?? { endedAtMs: archive.savedThroughMs, stopReason: 'recovered-after-reload' as const }
+      const validCount = archive.samples.filter(hasCompleteAcceleration).length
       return { ...(archive.continuation ? { continuation: archive.continuation } : {}), type: 'status', streaming: false, visible: !document.hidden, ready: false, permission: 'prompt', error: error.current,
-        receivedEventCount: archive.samples.length, validEventCount: archive.samples.filter(hasCompleteAcceleration).length,
+        receivedEventCount: archive.samples.length, validEventCount: validCount,
         participant: archive.participant, recovered: true, recoverySavedThroughMs: archive.savedThroughMs,
         storage: { ready: storage.ready, savedAt: storage.savedAt, error: storage.error, restored: true },
         recoveredTasks: archive.tasks, questionnaires: archive.questionnaires, metadata: archive.metadata, completion, taskRun: archive.tasks.at(-1) ?? null,
         estimationConfig: archive.config, estimateCount: archive.estimates.length, latestEstimate: archive.estimates.at(-1) ?? null,
-        count: archive.samples.length, completeAccelerationCount: archive.samples.filter(hasCompleteAcceleration).length,
+        count: archive.samples.length, completeAccelerationCount: validCount,
         latest: archive.samples.at(-1) ?? null, elapsedMs: Math.max(0, completion.endedAtMs - archive.metadata.startedAtMs), sinceLastSampleMs: null }
     }
     const view = current?.view(now)
@@ -139,8 +140,8 @@ export default function Sensor({ identity }: { identity: Identity }) {
       if (archive) {
         if ('sessionId' in message && message.sessionId === archive.metadata.sessionId) {
           if (message.type === 'pull-tasks') send({ type: 'task-history', sessionId: message.sessionId, tasks: archive.tasks })
-          if (message.type === 'pull') send({ type: 'batch', sessionId: message.sessionId, startIndex: message.startIndex, samples: archive.samples.slice(message.startIndex, message.startIndex + 100) })
-          if (message.type === 'pull-estimates') send({ type: 'estimates', sessionId: message.sessionId, startIndex: message.startIndex, estimates: archive.estimates.slice(message.startIndex, message.startIndex + 100) })
+          if (message.type === 'pull') send({ type: 'batch', sessionId: message.sessionId, startIndex: message.startIndex, samples: archive.samples.slice(message.startIndex, message.startIndex + BATCH_SIZE) })
+          if (message.type === 'pull-estimates') send({ type: 'estimates', sessionId: message.sessionId, startIndex: message.startIndex, estimates: archive.estimates.slice(message.startIndex, message.startIndex + BATCH_SIZE) })
           if (message.type === 'clear' && !clearing.current) {
             clearing.current = true
             try { await storage.archive(); recovered.current = null; participant.current = null; continuation.current = undefined; setRecoveryMessage('') }
