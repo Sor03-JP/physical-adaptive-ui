@@ -3,6 +3,7 @@ import { atom, useAtom } from 'jotai'
 import SavedRecording from './SavedRecording'
 import MovementConfirmationPanel from './MovementConfirmationPanel'
 import type { MovementConfirmationInput } from './movement-confirmation'
+import { pendingMovementConfirmations } from './movement-confirmation'
 import ContinuationPanel from './ContinuationPanel'
 import { prepareContinuation, continuationIntentSchema } from './continuation'
 import type { ContinuationIntent } from './continuation'
@@ -12,7 +13,7 @@ import ParticipantManager from './ParticipantManager'
 import ExperimentProgress, { experimentProgress } from './ExperimentProgress'
 import StoragePanel from './StoragePanel'
 import { useCheckpoint } from './useCheckpoint'
-import { nextStep, emptyManagement } from './management'
+import { nextStep, emptyManagement, assessableTasks } from './management'
 import type { Participant, Failure } from './management'
 import { downloadText } from './download'
 import { writeQuestionnaireCsv } from './questionnaire-csv'
@@ -380,18 +381,23 @@ export default function Controller({ identity }: { identity: Identity }) {
   const unavailable = !connected || !presence.sensor
   const management = collector.current?.management ?? emptyManagement()
   const participant = management.participant
-  const step = participant && collector.current ? nextStep(participant, collector.current.progressTaskRuns, collector.current.progressSurveyRuns, management) : null
-  const activeTask = step?.kind === 'active' ? collector.current?.taskRuns.find((t) => t.id === step.runId && t.purpose === 'main') : null
+  const taskRuns = collector.current?.taskRuns ?? []
+  const progressTasks = collector.current?.progressTaskRuns ?? []
+  const surveys = collector.current?.progressSurveyRuns ?? []
+  const confirmations = collector.current?.movementConfirmationHistory ?? []
+  const research = collector.current?.research.snapshot() ?? null
+  const assessable = assessableTasks(progressTasks, management)
+  const step = participant && collector.current ? nextStep(participant, progressTasks, surveys, management) : null
+  const activeTask = step?.kind === 'active' ? taskRuns.find((t) => t.id === step.runId && t.purpose === 'main') : null
   const planned = step?.kind === 'task' ? step : activeTask ? { taskId: activeTask.taskId as TaskId, mode: activeTask.mode } : null
   const recording = collector.current !== null
   const recovery = !!collector.current?.recovery
   const busy = collector.current?.research.busy ?? false
   const run = status?.taskRun ?? null
-  const surveys = collector.current?.progressSurveyRuns ?? []
   const taskElapsedMs = run?.startedAtMs != null ? (status?.metadata?.startedAtMs ?? 0) + (status?.elapsedMs ?? 0) - run.startedAtMs : 0
   const progress = experimentProgress({ recording, active, recovery, participant, step, run })
   const ready = !unavailable && !!status?.ready && storage.ready && !storage.error && !!status?.storage.ready && !status.storage.error
-  const unconfirmedTasks = collector.current?.unconfirmedTaskRuns ?? []
+  const unconfirmedTasks = pendingMovementConfirmations(taskRuns, confirmations)
   const taskDisabled = unconfirmedTasks.length > 0 || unavailable || !active || reading || !!storage.error || !storage.savedAt || !status?.storage.savedAt
     || !!status?.storage.error || !collector.current?.research.hasStartCalibration || busy || surveys.some((r) => r.phase === 'answering')
   const canContinue = unconfirmedTasks.length === 0 && !unavailable && !active && (panel.complete || recovery) && !panel.pending && !reading && !busy
@@ -411,12 +417,12 @@ export default function Controller({ identity }: { identity: Identity }) {
   ].filter((reason): reason is string => typeof reason === 'string')
   const showSurvey = active && !recovery && step?.kind === 'survey'
   const waitingForPhone = recording && status?.metadata?.sessionId !== collector.current?.metadata.sessionId
-  const requiresRetry = step?.kind === 'task' && !!collector.current?.taskRuns.some((task) => task.purpose === 'main' && task.taskId === step.taskId && task.mode === step.mode)
-  const endClock = collector.current?.research.snapshot().rounds.findLast((round) => round.purpose === 'end')
+  const requiresRetry = step?.kind === 'task' && taskRuns.some((task) => task.purpose === 'main' && task.taskId === step.taskId && task.mode === step.mode)
+  const endClock = research?.rounds.findLast((round) => round.purpose === 'end')
   function showTroubleshooting() { if (details.current) { details.current.open = true; const retryPanel = details.current.querySelector<HTMLDetailsElement>('[data-retry-panel]'); if (retryPanel) retryPanel.open = true; (retryPanel ?? details.current).scrollIntoView({ behavior: 'smooth', block: 'start' }) } }
   const showTask = active && !recovery && (step?.kind === 'task' || (step?.kind === 'active' && run?.purpose === 'main'))
   const progressManager = (<ParticipantManager variant={collector.current ? 'details' : 'setup'} participant={participant} selected={selectedParticipant} onSelect={setSelectedParticipant}
-      locked={!!collector.current || !!panel.pending || !!continuationIntent.current} management={management} tasks={collector.current?.progressTaskRuns ?? []} surveys={collector.current?.progressSurveyRuns ?? []}
+      locked={!!collector.current || !!panel.pending || !!continuationIntent.current} management={management} tasks={progressTasks} surveys={surveys}
       pending={!!panel.pending || unavailable || !!collector.current?.recovery || historySession.current !== collector.current?.metadata.sessionId} onFailure={markFailure} onRetry={retryTask}
       jsonExported={exports.json} csvExported={exports.csv} verified={verified.current} />
   )
@@ -455,7 +461,7 @@ export default function Controller({ identity }: { identity: Identity }) {
             run={run} count={collector.current?.taskCount ?? 0}
             elapsedSeconds={taskElapsedMs / 1000}
             disabled={taskDisabled} pending={!!panel.pending} onStart={startTask} onBegin={beginTask} onConfirmStopped={confirmStopped} />}
-          {showSurvey && <QuestionnaireController allowedTarget={step.target} runs={surveys} tasks={collector.current?.assessableTaskRuns ?? []}
+          {showSurvey && <QuestionnaireController allowedTarget={step.target} runs={surveys} tasks={assessable}
             disabled={unconfirmedTasks.length > 0 || unavailable || reading || !!panel.pending || busy || (run != null && !['complete', 'aborted'].includes(run.phase))} onOpen={openSurvey} />}
           {progress.index === 5 && <>
             {active ? <><p>両条件とアンケートが終了しました。センサー記録を停止してから、保存へ進みます。</p>
@@ -490,13 +496,13 @@ export default function Controller({ identity }: { identity: Identity }) {
               </>}
           </>}
         </>}
-        {recording && <MovementConfirmationPanel tasks={collector.current?.taskRuns ?? []} history={collector.current?.movementConfirmationHistory ?? []}
+        {recording && <MovementConfirmationPanel tasks={taskRuns} history={confirmations}
           disabled={!storage.ready || !!storage.error || reading || !!panel.pending || (run != null && !['complete', 'aborted'].includes(run.phase))}
           onSave={(input) => void confirmMovement(input)} />}
         {message && <p className="success" role="status">{message}</p>}
       </section>
       {active && recording && <div className="experiment-observation">
-        <ObservationPanel run={run} elapsedMs={taskElapsedMs} log={collector.current?.research.snapshot() ?? null}
+        <ObservationPanel run={run} elapsedMs={taskElapsedMs} log={research}
           busy={busy} disabled={unavailable || (run != null && !['briefing', 'complete', 'aborted'].includes(run.phase))}
           hidden={hideInference} onHidden={setHideInference} onCalibrate={calibrate} />
       </div>}
@@ -536,7 +542,7 @@ export default function Controller({ identity }: { identity: Identity }) {
         </div>
       </section>
       {run && !hideInference && <section><h2>課題ログの詳細</h2><pre>{JSON.stringify(run, null, 2)}</pre></section>}
-      <QuestionnaireController runs={surveys} tasks={collector.current?.assessableTaskRuns ?? []} disabled onOpen={openSurvey} />
+      <QuestionnaireController runs={surveys} tasks={assessable} disabled onOpen={openSurvey} />
       {!hideInference && <>
     <FeaturePreview collector={collector.current} />
     <section>
