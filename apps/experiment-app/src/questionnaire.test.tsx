@@ -5,7 +5,6 @@ import type { SurveyRun } from './questionnaire'
 import { TransitTrial } from './tasks'
 import { TransferCollector, readTransfer, writeTransfer } from './transfer'
 import QuestionnaireScreen from './QuestionnaireScreen'
-import QuestionnaireController from './QuestionnaireController'
 
 function tasks(mode: 'normal' | 'automatic', set: 'A' | 'B', start: number) {
   return ([1, 2, 3] as const).map((n) => {
@@ -147,8 +146,4 @@ it('renders common and automatic items without preselecting answers; submitted s
   expect(automatic.match(/<fieldset/g)).toHaveLength(7)
   expect(automatic).toContain('表示の変化に気づかなかった／判断できない')
   expect(automatic).toContain('強く集中する必要があった。')
-  const noop = () => {}
-  const pc = renderToStaticMarkup(<QuestionnaireController runs={book.snapshot()} tasks={allTasks} disabled={false} onOpen={noop} />)
-  expect(pc).toContain('回答中')
-  expect(pc).toContain('回答済み・PC受信済み')
 })

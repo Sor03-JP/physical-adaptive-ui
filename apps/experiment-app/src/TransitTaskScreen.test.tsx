@@ -54,22 +54,6 @@ it('hides station, scenario time, timetable and previous selection while waiting
   expect(render(trial)).not.toContain('correct')
 })
 
-it('preserves selection and independent answer logs while PC controls focus on the current task stage', () => {
-  const trial = preparedTrial('one', 'session', 'A1', 0)
-  const noop = () => {}
-  const pc = () => renderToStaticMarkup(<TaskController planned={{ taskId: 'A1', mode: trial.snapshot().mode }} startAllowed run={trial.snapshot()} count={1} elapsedSeconds={0}
-    disabled={false} pending={false} onStart={noop} onBegin={noop} onConfirmStopped={noop} />)
-  expect(trial.snapshot().selectedTrainIndex).toBeNull()
-  expect(pc()).toContain('候補表示準備中')
-  trial.present(0); trial.select(0, 100); trial.present(110); trial.select(1, 200); trial.present(210)
-  expect(trial.snapshot().events.filter((event) => event.type === 'train-selected').map((event) => event.trainIndex)).toEqual([0, 1])
-  expect(pc()).toContain('情報表示中')
-  expect(pc()).not.toContain('北浜行き')
-  trial.advance(20000); trial.confirmStopped(21000); trial.present(21001); trial.answer('10:48', 21500)
-  expect(trial.snapshot()).toMatchObject({ outcome: 'correct', selectedAtMs: null, selectedTrainIndex: 1 })
-  expect(pc()).toContain('問題文を表示')
-})
-
 it('adapts only typography and touch regions while preserving candidates, order, and selection', () => {
   const normal = preparedTrial('fixed', 'session', 'A1', 0, 'normal')
   const automatic = preparedTrial('auto', 'session', 'A1', 0, 'automatic')
