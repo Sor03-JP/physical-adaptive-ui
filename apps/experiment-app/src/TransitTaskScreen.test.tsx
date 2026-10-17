@@ -57,7 +57,7 @@ it('hides station, scenario time, timetable and previous selection while waiting
 it('preserves selection and independent answer logs while PC controls focus on the current task stage', () => {
   const trial = preparedTrial('one', 'session', 'A1', 0)
   const noop = () => {}
-  const pc = () => renderToStaticMarkup(<TaskController run={trial.snapshot()} count={1} elapsedSeconds={0}
+  const pc = () => renderToStaticMarkup(<TaskController planned={{ taskId: 'A1', mode: trial.snapshot().mode }} startAllowed run={trial.snapshot()} count={1} elapsedSeconds={0}
     disabled={false} pending={false} onStart={noop} onBegin={noop} onConfirmStopped={noop} />)
   expect(trial.snapshot().selectedTrainIndex).toBeNull()
   expect(pc()).toContain('候補表示準備中')
@@ -108,7 +108,7 @@ it('shows only the problem before PC start, and retains the same problem with ca
   expect(briefing).toContain('data-physical-state="stationary"')
   expect(briefing).toContain('実験者にお知らせください')
   const noop = () => {}
-  const controller = renderToStaticMarkup(<TaskController run={trial.snapshot()} count={1} elapsedSeconds={0}
+  const controller = renderToStaticMarkup(<TaskController planned={{ taskId: 'A1', mode: trial.snapshot().mode }} startAllowed run={trial.snapshot()} count={1} elapsedSeconds={0}
     disabled={false} pending={false} onStart={noop} onBegin={noop} onConfirmStopped={noop} />)
   expect(controller).not.toContain('>問題文を表示</button>')
   expect(controller).toContain('理解・開始状態を確認して計測開始')
@@ -126,14 +126,14 @@ it('hides inferred and applied states from the PC observer while retaining task 
   trial.updateAdaptation({ evaluatedAtMs: 1, stabilizedAtMs: 1, stabilizedState: 'running' }, 2)
   trial.present(3)
   const noop = () => {}
-  const html = renderToStaticMarkup(<TaskController run={trial.snapshot()} count={1} elapsedSeconds={0}
+  const html = renderToStaticMarkup(<TaskController planned={{ taskId: 'A1', mode: trial.snapshot().mode }} startAllowed run={trial.snapshot()} count={1} elapsedSeconds={0}
     disabled={false} pending={false} onStart={noop} onBegin={noop} onConfirmStopped={noop} />)
   expect(html).not.toContain('UIへ反映した状態：')
   expect(html).not.toContain('安定化後の入力：')
   expect(html).toContain('情報表示中')
   expect(html).not.toContain('静止を確認して回答画面へ')
   trial.advance(15000)
-  const stopped = renderToStaticMarkup(<TaskController run={trial.snapshot()} count={1} elapsedSeconds={15}
+  const stopped = renderToStaticMarkup(<TaskController planned={{ taskId: 'A1', mode: trial.snapshot().mode }} startAllowed run={trial.snapshot()} count={1} elapsedSeconds={15}
     disabled={false} pending={false} onStart={noop} onBegin={noop} onConfirmStopped={noop} />)
   expect(stopped).toContain('静止を確認して回答画面へ')
 })

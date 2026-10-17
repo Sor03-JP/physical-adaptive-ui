@@ -4,9 +4,9 @@ import type { TaskId, TaskRun } from './tasks'
 
 const phases = { briefing: '問題文の確認中', preparing: '候補表示準備中', viewing: '情報表示中', 'waiting-stop': '静止確認待ち', answering: '回答中', complete: '回答終了', aborted: '中止' }
 
-export default function TaskController({ run, count, elapsedSeconds, disabled, pending, onStart, onBegin, onConfirmStopped, planned, startAllowed = true }: {
-  planned?: { taskId: TaskId; mode: ExperimentMode } | null
-  startAllowed?: boolean
+export default function TaskController({ run, count, elapsedSeconds, disabled, pending, onStart, onBegin, onConfirmStopped, planned, startAllowed }: {
+  planned: { taskId: TaskId; mode: ExperimentMode }
+  startAllowed: boolean
   run: TaskRun | null
   count: number
   elapsedSeconds: number
@@ -16,8 +16,7 @@ export default function TaskController({ run, count, elapsedSeconds, disabled, p
   onBegin: () => void
   onConfirmStopped: () => void
 }) {
-  const taskId = planned?.taskId ?? (run?.taskId !== 'P1' ? run?.taskId : undefined) ?? 'A1'
-  const mode = planned?.mode ?? run?.mode ?? 'normal'
+  const { taskId, mode } = planned
   const inProgress = run !== null && !['complete', 'aborted'].includes(run.phase)
   const taskNumber = taskId.slice(1)
   return <section className="task-controls">

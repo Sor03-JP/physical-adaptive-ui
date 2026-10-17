@@ -15,7 +15,7 @@ const noop = () => {}
 const buttons = (html: string) => [...html.matchAll(/<button\b[^>]*>(.*?)<\/button>/gs)].map((match) => match[1]!.replace(/<[^>]*>/g, ''))
 function trial() { return new TransitTrial('trial', 'session', 'A1', 0, 'automatic') }
 function taskHtml(t: TransitTrial, pending = false) {
-  return renderToStaticMarkup(<TaskController planned={{ taskId: 'A1', mode: 'automatic' }}
+  return renderToStaticMarkup(<TaskController planned={{ taskId: 'A1', mode: 'automatic' }} startAllowed
     run={t.snapshot()} count={1} elapsedSeconds={5} disabled={false} pending={pending} onStart={noop} onBegin={noop} onConfirmStopped={noop} />)
 }
 
@@ -54,6 +54,10 @@ describe('controller experiment flow', () => {
     t.answer('unknown', 15006)
     expect(buttons(taskHtml(t))).toEqual(['問題文を表示'])
     expect(taskHtml(t)).not.toContain('目標の電車')
+    const next = renderToStaticMarkup(<TaskController planned={{ taskId: 'B2', mode: 'normal' }} startAllowed
+      run={t.snapshot()} count={1} elapsedSeconds={0} disabled={false} pending={false} onStart={noop} onBegin={noop} onConfirmStopped={noop} />)
+    expect(next).toContain('固定UI・B2')
+    expect(next).not.toContain('自動適応UI・A1')
   })
   it('offers one survey action, then displays waiting status without exposing answers', () => {
     const props = { allowedTarget: 'automatic' as const, tasks: [], disabled: false, onOpen: noop }
