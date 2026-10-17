@@ -292,6 +292,7 @@ export class TransferCollector {
     }
   }
   export(): Transfer { return transferSchema.parse(this.snapshot(true)) }
+  matchesSnapshot(saved: ReadableTransfer): boolean { return JSON.stringify(this.export()) === JSON.stringify(saved) }
 }
 
 export function readTransfer(text: string): ReadableTransfer { return readableTransferSchema.parse(JSON.parse(text)) }

@@ -1,4 +1,7 @@
 import { describe, expect, it } from 'vitest'
+import { renderToStaticMarkup } from 'react-dom/server'
+import ParticipantManager from './ParticipantManager'
+import { prepareContinuation } from './continuation'
 import { assessableTasks, assignments, createRoster, emptyManagement, managementSchema, nextStep } from './management'
 import type { Group, Participant } from './management'
 import { TransitTrial } from './tasks'
@@ -80,5 +83,22 @@ describe('participant allocation and progress', () => {
     for (const change of [{ consentConfirmed: false }, { reason: '' }, { requestedAtControllerMs: 0 }, { retryRunId: 'one' }])
       expect(managementSchema.safeParse({ ...emptyManagement(), failures: [failure], retries: [{ ...retry, ...change }] }).success).toBe(false)
     expect(managementSchema.safeParse({ ...emptyManagement(), retries: [retry] }).success).toBe(false)
+  })
+  it('keeps previous-session progress visible but only offers current-session tasks for failure and retry', () => {
+    const old = new TransferCollector(metadata, 5000)
+    old.setParticipant(participant()); old.updateTask(complete('previous', 'A1', 'normal'))
+    old.updateStatus(0, { endedAtMs: 16000, stopReason: 'manual' })
+    const current = new TransferCollector({ ...metadata, sessionId: 'resumed' }, 5000)
+    current.continuation = prepareContinuation(old.export(), '接続確認', 20000, 'unused')
+    current.management = structuredClone(current.continuation.management)
+    current.updateTask({ ...complete('current', 'A2', 'normal'), sessionId: 'resumed' })
+    const noop = () => {}
+    const html = renderToStaticMarkup(<ParticipantManager variant="details" participant={participant()} selected={null}
+      onSelect={noop} locked management={current.management} tasks={current.progressTaskRuns} retryTasks={current.taskRuns}
+      surveys={[]} pending={false} retryDisabled={false} onFailure={noop} onRetry={noop} jsonExported={false} csvExported={false} verified={false} />)
+    const options = html.match(/<select[^>]*>(.*?)<\/select>/s)![1]!
+    expect(options).toContain('value="current"')
+    expect(options).not.toContain('value="previous"')
+    expect(current.progressTaskRuns.map((task) => task.id)).toEqual(['previous', 'current'])
   })
 })

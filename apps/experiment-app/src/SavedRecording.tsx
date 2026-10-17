@@ -12,7 +12,7 @@ export default function SavedRecording({ active, reading, setReading, onVerified
   active: boolean
   reading: boolean
   setReading: (reading: boolean) => void
-  onVerified: () => void
+  onVerified: (record: ReadableTransfer) => void
 }) {
   const [imported, setImported] = useState<{ id: string; version: number; count: number; estimates: number; tasks: number; practiceTasks: number; researchEvents: number; clockRounds: number; surveys: number; submittedSurveys: number; complete: string; first: ReadableMotionSample | null; last: ReadableMotionSample | null } | null>(null)
   const [importedSurveys, setImportedSurveys] = useState<SurveyRun[]>([])
@@ -43,7 +43,7 @@ export default function SavedRecording({ active, reading, setReading, onVerified
         setImported({ id: data.sessionId, version: data.version, count: data.samples.length, estimates: 0, tasks: 0, practiceTasks: 0, researchEvents: 0, clockRounds: 0, surveys: 0, submittedSurveys: 0, complete: 'iPhone単体記録',
           first: data.samples[0] ?? null, last: data.samples.at(-1) ?? null })
       }
-      if (same) onVerified()
+      if (same && records) onVerified(records.at(-1)!)
       setMessage(same ? '保存したファイルと、この画面の記録が一致しました。保存確認は完了です。'
         : 'この画面の記録とは一致していません。直前に保存したファイルを選び直してください。別の記録のファイルとしては読み込めています。')
     } catch (cause) { setError(cause instanceof Error ? cause.message : '保存ファイルを確認できませんでした。') }
