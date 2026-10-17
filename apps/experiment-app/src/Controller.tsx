@@ -457,7 +457,7 @@ export default function Controller({ identity }: { identity: Identity }) {
             <p>選択・選び直し・情報が消えた後の回答まで体験します。練習が終わると、ここに最初の本番課題が表示されます。</p></>}
           {unconfirmedTasks.length > 0 && <p className="notice" role="status">次へ進む前に、下の「課題終了後の動作確認」を保存してください。</p>}
           {showTask && requiresRetry && <><p className="notice">この課題には既に試行記録があります。中断理由と再実施の対応を確認してください。</p><button onClick={showTroubleshooting}>再実施・中断の対応を開く</button></>}
-          {showTask && !requiresRetry && <TaskController planned={planned} startAllowed={step?.kind === 'task'}
+          {showTask && planned && !requiresRetry && <TaskController planned={planned} startAllowed={step?.kind === 'task'}
             run={run} count={collector.current?.taskCount ?? 0}
             elapsedSeconds={taskElapsedMs / 1000}
             disabled={taskDisabled} pending={!!panel.pending} onStart={startTask} onBegin={beginTask} onConfirmStopped={confirmStopped} />}

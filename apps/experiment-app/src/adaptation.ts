@@ -29,8 +29,3 @@ export const uiLogSchema = z.strictObject({
   surface: z.enum(['information', 'common']), metrics: presentationMetricsSchema.nullable(),
 })
 export const stateLabels = { stationary: '静止', walking: '歩行', running: '走行', unknown: '推定不能' }
-export const displayLabels = { stationary: '通常表示', walking: '歩行向け', running: '走行向け' }
-export const adaptationReasonLabels = {
-  fixed: '固定条件', initial: '有効な推定待ち', estimated: '安定化後の推定に追従',
-  'unknown-hold': '推定不能中の表示維持', 'unknown-fallback': '推定不能が続いたため通常表示',
-}
