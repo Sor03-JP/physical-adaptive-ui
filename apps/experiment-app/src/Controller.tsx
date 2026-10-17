@@ -352,7 +352,7 @@ export default function Controller({ identity }: { identity: Identity }) {
     try {
       const data = collector.current.export()
       setReading(true)
-      downloadText(writeExperimentFile(await outputRecords()), `${data.management.participant?.participantId ?? 'unassigned'}_${data.metadata.sessionId}${data.complete && !data.recovery ? '' : '-partial'}.json`, 'application/json')
+      downloadText(writeExperimentFile(await loadExperimentRecords(data, storage.journal)), `${data.management.participant?.participantId ?? 'unassigned'}_${data.metadata.sessionId}${data.complete && !data.recovery ? '' : '-partial'}.json`, 'application/json')
       setExports((s) => ({ ...s, json: true }))
       setError(''); setMessage(data.complete ? '全記録のダウンロードを開始しました。次に「保存したファイルを確認する」で、今ダウンロードしたファイルを選んでください。'
         : '途中データを出力しました。停止確認・全件受信が完了したファイルではありません。')
