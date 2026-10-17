@@ -7,7 +7,7 @@ import { readSetting, getOrCreateSetting } from './checkpoint'
 import { downloadText } from './download'
 
 export default function ParticipantManager({ participant, selected, onSelect, locked, management, tasks, surveys, pending, onFailure, onRetry, jsonExported, csvExported, verified, variant }: {
-  variant?: 'setup' | 'details'
+  variant: 'setup' | 'details'
   participant: Participant | null; selected: Participant | null; onSelect: (p: Participant | null) => void
   locked: boolean; management: Management; tasks: TaskRun[]; surveys: SurveyRun[]; pending: boolean
   onFailure: (failure: Omit<Failure, 'recordedAtControllerMs'>) => void; onRetry: (originalRunId: string) => void
@@ -41,7 +41,7 @@ export default function ParticipantManager({ participant, selected, onSelect, lo
   const describe = (mode: 'normal' | 'automatic', set: string) => `${mode === 'normal' ? '固定UI' : '自動適応UI'}・${set}`
   return <section>
     <h2>{variant === 'setup' ? '参加者を選択' : '参加者・実験の進行管理'}</h2>
-    {variant !== 'details' && <>
+    {variant === 'setup' && <>
     <p>開始前に参加者IDを選びます。氏名は記録しません。割当は保存後に固定し、人数が10名以外の場合は割当方針を再確認してください。</p>
     {!roster && <button disabled={locked} onClick={() => void generateRoster()}>10名分の割当表を作成・保存</button>}
     <label>参加者ID <select disabled={locked} value={current?.participantId ?? ''} onChange={(event) => {
@@ -56,7 +56,7 @@ export default function ParticipantManager({ participant, selected, onSelect, lo
     </details>}
     {error && <p className="error">{error}</p>}
     {current && <p>参加者：{current.participantId} ／ {assignments[current.group].map((b) => describe(b.mode, b.set)).join(' → ')}</p>}
-    {variant !== 'setup' && <>
+    {variant === 'details' && <>
     {current && <>
       <p className="status">次の操作：{step?.kind === 'practice' ? 'iPhoneで共通練習を実施' : step?.kind === 'active' ? '現在の課題を進行' : step?.kind === 'task' ? `${describe(step.mode, step.taskId[0]!)}・${step.taskId}の問題文を表示`
         : step?.kind === 'survey' ? step.target === 'final' ? '最後の比較・自由回答' : `${step.target === 'normal' ? '固定UI' : '自動適応UI'}後のアンケート` : '記録停止・データ保存・保存ファイルの確認'}</p>

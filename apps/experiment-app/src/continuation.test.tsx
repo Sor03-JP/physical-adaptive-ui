@@ -4,7 +4,7 @@ import { prepareContinuation, continuationIntentSchema } from './continuation'
 import { TransferCollector, readTransfer, writeTransfer } from './transfer'
 import { TransitTrial } from './tasks'
 import type { TrialTaskId } from './tasks'
-import { nextStep } from './management'
+import { assessableTasks, nextStep } from './management'
 import { QuestionnaireBook, conditionTaskIds } from './questionnaire'
 import { messageSchema } from './protocol'
 import { phoneArchiveSchema } from './phone-checkpoint'
@@ -58,9 +58,10 @@ it('continues questionnaires across different phone clocks without rewriting pre
   c.updateTask(task('retry', 'A2', 'new', 10))
   c.updateTask(task('last', 'A3', 'new', 20000))
   const book = new QuestionnaireBook(context)
-  const ids = conditionTaskIds(c.assessableTaskRuns, 'normal')
+  const validTasks = assessableTasks(c.progressTaskRuns, c.management)
+  const ids = conditionTaskIds(validTasks, 'normal')
   expect(ids).toEqual(['done', 'retry', 'last'])
-  book.open('normal-survey', 'new', 'normal', ids, 40000, c.assessableTaskRuns)
+  book.open('normal-survey', 'new', 'normal', ids, 40000, validTasks)
   book.present('normal-survey', 40001)
   for (const item of book.active!.items) book.answer('normal-survey', item.id, 3, 40002)
   book.submit('normal-survey', 40003)
@@ -77,7 +78,8 @@ it('keeps submitted surveys and repeats only unfinished surveys', () => {
   const { c } = continued()
   c.updateTask(task('retry', 'A2', 'new', 10)); c.updateTask(task('last', 'A3', 'new', 20000))
   const book = new QuestionnaireBook(c.continuation)
-  book.open('survey', 'new', 'normal', conditionTaskIds(c.assessableTaskRuns, 'normal'), 40000, c.assessableTaskRuns)
+  const validTasks = assessableTasks(c.progressTaskRuns, c.management)
+  book.open('survey', 'new', 'normal', conditionTaskIds(validTasks, 'normal'), 40000, validTasks)
   book.present('survey', 40001); book.answer('survey', 'q1', 4, 40002)
   c.updateQuestionnaires(book.snapshot()); c.updateStatus(0, { endedAtMs: 50000, stopReason: 'manual' })
   expect(prepareContinuation(c.export(), '接続確認', 70000, 'unused').questionnaires).toEqual([])
@@ -140,11 +142,12 @@ it('carries a submitted first-condition survey across a restarted phone clock an
   current.continuation = context; current.management = structuredClone(context.management)
   for (const [index, id] of ['B1', 'B2', 'B3'].entries()) current.updateTask(task(index === 0 ? 'retry-b1' : id, id as TrialTaskId, 'new', 1 + index * 16000))
   const second = new QuestionnaireBook(context)
-  second.open('automatic', 'new', 'automatic', conditionTaskIds(current.assessableTaskRuns, 'automatic'), 50000, current.assessableTaskRuns)
+  const validTasks = assessableTasks(current.progressTaskRuns, current.management)
+  second.open('automatic', 'new', 'automatic', conditionTaskIds(validTasks, 'automatic'), 50000, validTasks)
   second.present('automatic', 50001)
   for (const item of second.active!.items) second.answer('automatic', item.id, 3, 50002)
   second.submit('automatic', 50003); expect(current.updateQuestionnaires(second.snapshot())).toBe(true)
-  second.open('final', 'new', 'final', ['normal', 'automatic'], 50004, current.assessableTaskRuns); second.present('final', 50005)
+  second.open('final', 'new', 'final', ['normal', 'automatic'], 50004, validTasks); second.present('final', 50005)
   second.answer('final', 'comparison', second.active!.items[0]!.choices[0]!.value, 50006); second.submit('final', 50007)
   expect(current.updateQuestionnaires(second.snapshot())).toBe(true)
   expect(nextStep(participant, current.progressTaskRuns, current.progressSurveyRuns, current.management)).toEqual({ kind: 'done' })

@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import { movementConfirmationSchema, pendingMovementConfirmations, validMovementConfirmation } from './movement-confirmation'
 import type { MovementConfirmation, MovementConfirmationInput } from './movement-confirmation'
-import { emptyManagement, managementSchema, assessableTasks } from './management'
+import { emptyManagement, managementSchema } from './management'
 import type { Participant, Management, Failure, Retry } from './management'
 import type { LoadedCheckpoint, CheckpointDelta } from './checkpoint'
 import { surveyListSchema, validSurveyLinks } from './questionnaire'
@@ -197,7 +197,6 @@ export class TransferCollector {
     if (!original || !['complete', 'aborted'].includes(original.phase)) throw new Error('元課題を終了・中断してから再実施してください。')
     this.management = managementSchema.parse({ ...this.management, retries: [...this.management.retries, retry] })
   }
-  get assessableTaskRuns(): TaskRun[] { return assessableTasks(this.progressTaskRuns, this.management) }
   checkpoint(sampleStart: number, estimateStart: number): CheckpointDelta {
     return { sessionId: this.metadata.sessionId, header: this.snapshot(false), sampleStart, estimateStart,
       samples: this.samples.slice(sampleStart), estimates: this.estimates.slice(estimateStart) }
