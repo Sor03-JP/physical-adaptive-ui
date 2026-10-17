@@ -3,17 +3,13 @@ import { downloadText } from './download'
 import { writeQuestionnaireCsv } from './questionnaire-csv'
 import type { Participant } from './management'
 import type { SurveyRun } from './questionnaire'
-import type { RefObject } from 'react'
 import { MAX_FILE_BYTES, readRecording } from './recording'
 import type { ReadableMotionSample } from './recording'
 import { readExperimentFile, writeExperimentFile } from './experiment-file'
 import type { ReadableTransfer } from './transfer'
-import type { TransferCollector } from './transfer'
 
-export default function SavedRecording({ collector, active, reading, setReading, onVerified, guided = false, getRecords }: {
-  guided?: boolean
-  getRecords?: () => Promise<ReadableTransfer[]>
-  collector: RefObject<TransferCollector | null>
+export default function SavedRecording({ active, reading, setReading, onVerified, getRecords }: {
+  getRecords: () => Promise<ReadableTransfer[]>
   active: boolean
   reading: boolean
   setReading: (reading: boolean) => void
@@ -39,15 +35,14 @@ export default function SavedRecording({ collector, active, reading, setReading,
         setImported({ id: data.metadata.sessionId, version: data.version, count: records.reduce((n, r) => n + r.samples.length, 0),
           estimates: records.reduce((n, r) => n + ('inference' in r ? r.inference.estimates.length : 0), 0),
           tasks: records.reduce((n, r) => n + ('tasks' in r ? r.tasks.length : 0), 0),
-          practiceTasks: records.reduce((n, r) => n + ((r.version === 10 || r.version === 11 || r.version === 12 || r.version === 13) ? r.tasks.filter((t) => t.purpose === 'practice').length : 0), 0),
+          practiceTasks: records.reduce((n, r) => n + ('tasks' in r ? r.tasks.filter((task) => 'purpose' in task && task.purpose === 'practice').length : 0), 0),
           researchEvents: records.reduce((n, r) => n + ('research' in r ? r.research.events.length : 0), 0),
           clockRounds: records.reduce((n, r) => n + ('research' in r ? r.research.rounds.length : 0), 0),
           surveys: records.reduce((n, r) => n + ('questionnaires' in r ? r.questionnaires.length : 0), 0),
           submittedSurveys: records.reduce((n, r) => n + ('questionnaires' in r ? r.questionnaires.filter((s) => s.phase === 'submitted').length : 0), 0),
           complete: records.length > 1 ? `続行元を含む${records.length}件の計測記録（中断記録も保持）` : 'recovery' in data && data.recovery ? 'iPhone更新による中断・保存範囲を回収' : data.complete ? 'センサー全件受信・停止確認済み' : '途中データ',
           first: records[0]?.samples[0] ?? null, last: data.samples.at(-1) ?? null })
-        same = collector.current !== null
-          && writeExperimentFile(getRecords ? await getRecords() : [collector.current.export()]) === writeExperimentFile(records)
+        same = writeExperimentFile(await getRecords()) === writeExperimentFile(records)
       } catch {
         const data = readRecording(text)
         setImported({ id: data.sessionId, version: data.version, count: data.samples.length, estimates: 0, tasks: 0, practiceTasks: 0, researchEvents: 0, clockRounds: 0, surveys: 0, submittedSurveys: 0, complete: 'iPhone単体記録',
@@ -70,7 +65,7 @@ export default function SavedRecording({ collector, active, reading, setReading,
 
   return (
     <section>
-      <h2>{guided ? '2. 保存したファイルを確認する' : '保存したデータを確認する'}</h2>
+      <h2>2. 保存したファイルを確認する</h2>
       <p>保存ができたか確かめます。「ファイルを選択」から、先ほどダウンロードした末尾が「.json」のファイルを選んでください。通常はPCの「ダウンロード」フォルダにあります。</p>
       <p><small>ファイルの内容を、この画面の記録と自動で照合します。ファイルを編集したり、実験データを書き換えたりする操作ではありません。</small></p>
       <label>保存したデータファイル（.json）<input type="file" accept="application/json,.json" disabled={active || reading}

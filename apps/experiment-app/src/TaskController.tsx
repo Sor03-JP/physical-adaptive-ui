@@ -29,7 +29,7 @@ export default function TaskController({ run, count, elapsedSeconds, disabled, p
         <button className="primary" disabled={disabled || pending || run.briefingShownAtMs === null} onClick={onBegin}>理解・開始状態を確認して計測開始</button></>}
       {run.phase === 'preparing' && <p>iPhoneの候補表示を待っています。</p>}
       {run.phase === 'viewing' && <><p className="trial-timer">{Math.max(0, elapsedSeconds).toFixed(1)} <small>／ {run.timing.displayMs / 1000}秒</small></p>
-        <p>「目視確認」欄の動作予定に沿って声をかけ、実際に確認できた状態を押してください。</p></>}
+        <p>「動作の案内」欄の予定に沿って声をかけ、動作を目視してください。確認結果は回答終了後に記録します。</p></>}
       {run.phase === 'waiting-stop' && <><p>情報は非表示です。急停止を求めず、立ち止まったことを目視確認してください。</p>
         <button className="primary" disabled={disabled || pending} onClick={onConfirmStopped}>静止を確認して回答画面へ</button></>}
       {run.phase === 'answering' && <p>iPhoneで回答中です。回答または10秒の期限を待ってください。</p>}

@@ -482,7 +482,7 @@ export default function Controller({ identity }: { identity: Identity }) {
                   {surveys.length > 0 && <button className={exports.json && !exports.csv ? 'primary' : undefined} disabled={!exports.json || reading || busy} onClick={downloadQuestionnaires}>アンケート表をダウンロード（.csv）</button>}
                 </div>
                 <p><small>全記録のダウンロード：{exports.json ? 'ボタン操作済み' : '未操作'}{surveys.length > 0 && ` ／ アンケート表：${exports.csv ? 'ボタン操作済み' : '未操作'}`}。実際に保存できたかは次の手順で確認します。</small></p>
-                {exports.json ? <SavedRecording guided key={collector.current?.metadata.sessionId} collector={collector} active={active}
+                {exports.json ? <SavedRecording key={collector.current?.metadata.sessionId} active={active}
                   reading={reading || busy} setReading={setReading} getRecords={outputRecords} onVerified={() => { verified.current = true; refresh() }} />
                   : <><h3>2. 保存したファイルを確認する</h3><p>全記録をダウンロードすると、ここで保存確認ができます。</p></>}
                 {verified.current && <p className="success">保存確認が完了しました。ファイルを別の保存先にもコピーしておいてください。</p>}
