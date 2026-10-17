@@ -20,8 +20,8 @@ import FeaturePreview from './FeaturePreview'
 import TaskController from './TaskController'
 import QuestionnaireController from './QuestionnaireController'
 import type { SurveyTarget } from './questionnaire'
-import ObservationPanel, { canRecordObservation } from './ObservationPanel'
-import type { ObservationKind, ResearchEvent } from './research-log'
+import ObservationPanel from './ObservationPanel'
+import type { ResearchEvent } from './research-log'
 import { observationGuide } from './observation-plan'
 import { stateLabels } from './adaptation'
 import type { ExperimentMode } from './adaptation'
@@ -205,13 +205,13 @@ export default function Controller({ identity }: { identity: Identity }) {
     command.current = { type: 'stop', sessionId: collector.current.metadata.sessionId }
     send(command.current); refresh()
   }
-  function recordResearch(kind: ResearchEvent['kind'], value: ObservationKind) {
+  function recordResearch(value: ResearchEvent['value']) {
     const current = collector.current
     if (!current || phone.current?.completion || phone.current?.metadata?.sessionId !== current.metadata.sessionId) return
     try {
       const run = phone.current.taskRun
       const questionnaire = current.surveyRuns.find((r) => r.phase === 'answering')
-      current.research.record({ kind, value, controllerAtMs: controllerNow(), taskRunId: run?.id ?? null, reportedPhase: questionnaire ? `questionnaire:${questionnaire.target}` : run?.phase ?? null })
+      current.research.record({ kind: 'observation', value, controllerAtMs: controllerNow(), taskRunId: run?.id ?? null, reportedPhase: questionnaire ? `questionnaire:${questionnaire.target}` : run?.phase ?? null })
       verified.current = false; refresh()
     } catch (cause) { setError(cause instanceof Error ? cause.message : '観察を記録できませんでした。') }
   }
@@ -220,11 +220,6 @@ export default function Controller({ identity }: { identity: Identity }) {
     if (!current || current.research.busy || !connected || !presence.sensor) return
     current.research.begin(phone.current?.completion ? 'end' : current.research.hasStartCalibration ? 'manual' : 'start', controllerNow())
     verified.current = false; refresh()
-  }
-  function recordManualResearch(kind: ResearchEvent['kind'], value: ObservationKind) {
-    if (!canRecordObservation(phone.current?.taskRun?.phase ?? null,
-      collector.current?.surveyRuns.some((survey) => survey.phase === 'answering') ?? false)) return
-    recordResearch(kind, value)
   }
   async function confirmMovement(input: MovementConfirmationInput) {
     const current = collector.current
@@ -246,7 +241,7 @@ export default function Controller({ identity }: { identity: Identity }) {
     const step = participant ? nextStep(participant, current.progressTaskRuns, current.progressSurveyRuns, current.management) : null
     if (step && (step.kind !== 'survey' || step.target !== target)) { setError('割当済みの順序に従ってアンケートを実施してください。'); return }
     setError(''); verified.current = false
-    recordResearch('observation', 'stationary')
+    recordResearch('stationary')
     command.current = { type: 'survey-open', sessionId: current.metadata.sessionId, surveyId: crypto.randomUUID(), target, linkedIds }
     send(command.current); refresh()
   }
@@ -312,14 +307,14 @@ export default function Controller({ identity }: { identity: Identity }) {
     const run = phone.current?.taskRun
     if (!run || run.phase !== 'briefing' || run.briefingShownAtMs === null || command.current || collector.current?.research.busy) return
     const initial = observationGuide(run, 0)
-    if (initial) recordResearch('observation', initial.state)
+    if (initial) recordResearch(initial.state)
     command.current = { type: 'task-begin', sessionId: run.sessionId, runId: run.id }
     send(command.current); refresh()
   }
   function confirmStopped() {
     const run = phone.current?.taskRun
     if (!run || run.phase !== 'waiting-stop' || command.current) return
-    recordResearch('observation', 'stationary')
+    recordResearch('stationary')
     command.current = { type: 'task-answer', sessionId: run.sessionId, runId: run.id }
     send(command.current); refresh()
   }
@@ -394,7 +389,6 @@ export default function Controller({ identity }: { identity: Identity }) {
   const run = status?.taskRun ?? null
   const surveys = collector.current?.progressSurveyRuns ?? []
   const taskElapsedMs = run?.startedAtMs != null ? (status?.metadata?.startedAtMs ?? 0) + (status?.elapsedMs ?? 0) - run.startedAtMs : 0
-  const observationActive = active && !recovery && canRecordObservation(run?.phase ?? null, surveys.some((survey) => survey.phase === 'answering'))
   const progress = experimentProgress({ recording, active, recovery, participant, step, run })
   const ready = !unavailable && !!status?.ready && storage.ready && !storage.error && !!status?.storage.ready && !status.storage.error
   const unconfirmedTasks = collector.current?.unconfirmedTaskRuns ?? []
@@ -461,7 +455,7 @@ export default function Controller({ identity }: { identity: Identity }) {
             run={run} count={collector.current?.taskCount ?? 0}
             elapsedSeconds={taskElapsedMs / 1000}
             disabled={taskDisabled} pending={!!panel.pending} onStart={startTask} onBegin={beginTask} onConfirmStopped={confirmStopped} />}
-          {showSurvey && <QuestionnaireController focused allowedTarget={step.target} runs={surveys} tasks={collector.current?.assessableTaskRuns ?? []}
+          {showSurvey && <QuestionnaireController allowedTarget={step.target} runs={surveys} tasks={collector.current?.assessableTaskRuns ?? []}
             disabled={unconfirmedTasks.length > 0 || unavailable || reading || !!panel.pending || busy || (run != null && !['complete', 'aborted'].includes(run.phase))} onOpen={openSurvey} />}
           {progress.index === 5 && <>
             {active ? <><p>両条件とアンケートが終了しました。センサー記録を停止してから、保存へ進みます。</p>
@@ -502,9 +496,9 @@ export default function Controller({ identity }: { identity: Identity }) {
         {message && <p className="success" role="status">{message}</p>}
       </section>
       {active && recording && <div className="experiment-observation">
-        <ObservationPanel compact run={run} elapsedMs={taskElapsedMs} log={collector.current?.research.snapshot() ?? null} active={observationActive}
+        <ObservationPanel run={run} elapsedMs={taskElapsedMs} log={collector.current?.research.snapshot() ?? null}
           busy={busy} disabled={unavailable || (run != null && !['briefing', 'complete', 'aborted'].includes(run.phase))}
-          hidden={hideInference} onHidden={setHideInference} onRecord={(value) => recordManualResearch('observation', value)} onCalibrate={calibrate} />
+          hidden={hideInference} onHidden={setHideInference} onCalibrate={calibrate} />
       </div>}
     </div>
     <details ref={details} className="controller-details"><summary>詳細・トラブル対応</summary>
@@ -542,7 +536,7 @@ export default function Controller({ identity }: { identity: Identity }) {
         </div>
       </section>
       {run && !hideInference && <section><h2>課題ログの詳細</h2><pre>{JSON.stringify(run, null, 2)}</pre></section>}
-      <QuestionnaireController readOnly runs={surveys} tasks={collector.current?.assessableTaskRuns ?? []} disabled onOpen={openSurvey} />
+      <QuestionnaireController runs={surveys} tasks={collector.current?.assessableTaskRuns ?? []} disabled onOpen={openSurvey} />
       {!hideInference && <>
     <FeaturePreview collector={collector.current} />
     <section>

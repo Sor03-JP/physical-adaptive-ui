@@ -56,7 +56,7 @@ describe('controller experiment flow', () => {
     expect(taskHtml(t)).not.toContain('目標の電車')
   })
   it('offers one survey action, then displays waiting status without exposing answers', () => {
-    const props = { focused: true, allowedTarget: 'automatic' as const, tasks: [], disabled: false, onOpen: noop }
+    const props = { allowedTarget: 'automatic' as const, tasks: [], disabled: false, onOpen: noop }
     const before = renderToStaticMarkup(<QuestionnaireController {...props} runs={[]} />)
     expect(buttons(before)).toEqual(['静止を確認してアンケートを表示'])
     expect(before).toMatch(/disabled=""/)
