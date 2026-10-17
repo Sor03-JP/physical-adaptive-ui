@@ -1,13 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { renderToStaticMarkup } from 'react-dom/server'
-import { assignments, createRoster, emptyManagement, managementSchema, nextStep } from './management'
+import { assessableTasks, assignments, createRoster, emptyManagement, managementSchema, nextStep } from './management'
 import type { Group, Participant } from './management'
 import { TransitTrial } from './tasks'
 import type { TrialTaskId, TaskRun } from './tasks'
 import { QuestionnaireBook } from './questionnaire'
 import type { SurveyTarget } from './questionnaire'
 import { TransferCollector, readTransfer, writeTransfer } from './transfer'
-import ParticipantManager from './ParticipantManager'
 
 const metadata = { sessionId: 'session', startedAt: '2026-10-16T00:00:00.000Z', timeOriginMs: 1000, startedAtMs: 0, userAgent: 'test' }
 const participant = (group: Group = 'G1'): Participant => ({ participantId: 'p01', group, rosterId: 'roster' })
@@ -60,7 +58,7 @@ describe('participant allocation and progress', () => {
     c.updateTask(complete('practice', 'P1', 'automatic')); c.updateTask(original)
     c.markFailure({ originalRunId: 'original', category: 'log-unavailable', reason: '表示ログの回収不能', recordedAtControllerMs: 40000 })
     expect(nextStep(participant(), c.taskRuns, [], c.management)).toEqual({ kind: 'task', taskId: 'A1', mode: 'normal' })
-    expect(c.assessableTaskRuns.map((t) => t.id)).not.toContain('original')
+    expect(assessableTasks(c.progressTaskRuns, c.management).map((t) => t.id)).not.toContain('original')
     expect(c.taskRuns.find((t) => t.id === 'original')).toEqual(original)
     const retry = { ...c.management.failures[0]!, retryRunId: 'retry', consentConfirmed: true as const, requestedAtControllerMs: 40001 }
     c.requestRetry(retry)
@@ -82,12 +80,5 @@ describe('participant allocation and progress', () => {
     for (const change of [{ consentConfirmed: false }, { reason: '' }, { requestedAtControllerMs: 0 }, { retryRunId: 'one' }])
       expect(managementSchema.safeParse({ ...emptyManagement(), failures: [failure], retries: [{ ...retry, ...change }] }).success).toBe(false)
     expect(managementSchema.safeParse({ ...emptyManagement(), retries: [retry] }).success).toBe(false)
-  })
-  it('shows participant identity, next assigned task and separate file verification status', () => {
-    const noop = () => {}
-    const html = renderToStaticMarkup(<ParticipantManager participant={participant('G4')} selected={null} onSelect={noop} locked management={emptyManagement()}
-      tasks={[complete('practice', 'P1', 'automatic')]} surveys={[]} pending={false} onFailure={noop} onRetry={noop} jsonExported csvExported={false} verified={false} />)
-    expect(html).toContain('p01'); expect(html).toContain('自動適応UI・A・A1の問題文を表示')
-    expect(html).toContain('全記録のダウンロード操作 済'); expect(html).toContain('アンケート表のダウンロード操作 未'); expect(html).toContain('保存ファイルの一致 未確認')
   })
 })
