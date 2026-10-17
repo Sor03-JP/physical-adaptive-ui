@@ -124,7 +124,7 @@ export type ReadableTransfer = z.infer<typeof readableTransferSchema>
 
 export function checkpointTransfer(saved: LoadedCheckpoint): Transfer {
   const header = saved.header as Transfer
-  const data = readTransfer(JSON.stringify({ ...header, samples: saved.samples, inference: { ...header.inference, estimates: saved.estimates } }))
+  const data = parseTransfer({ ...header, samples: saved.samples, inference: { ...header.inference, estimates: saved.estimates } })
   if (data.version === 11) return { ...data, version: 13, observationProtocol: null, movementConfirmations: [] }
   if (data.version === 12) return { ...data, version: 13, movementConfirmations: [] }
   if (data.version !== 13) throw new Error('保存データの復旧形式が一致しません。')
@@ -209,7 +209,8 @@ export class TransferCollector {
   get surveyRuns(): SurveyRun[] { return structuredClone(this.questionnaires) }
   updateQuestionnaires(runs: SurveyRun[]): boolean {
     const parsed = surveyListSchema.parse(runs)
-    if (parsed.some((run) => run.sessionId !== this.metadata.sessionId || !validSurveyLinks(run, [...(this.continuation?.questionnaires ?? []), ...parsed], this.progressTaskRuns, this.continuation?.previousSessionIds))) return false
+    const tasks = [...(this.continuation?.tasks ?? []), ...this.tasks.values()]
+    if (parsed.some((run) => run.sessionId !== this.metadata.sessionId || !validSurveyLinks(run, [...(this.continuation?.questionnaires ?? []), ...parsed], tasks, this.continuation?.previousSessionIds))) return false
     // Ignore stale snapshots; submitted answers are immutable.
     if (this.questionnaires.some((old) => {
       const next = parsed.find((r) => r.id === old.id)
@@ -295,5 +296,6 @@ export class TransferCollector {
   matchesSnapshot(saved: ReadableTransfer): boolean { return JSON.stringify(this.export()) === JSON.stringify(saved) }
 }
 
-export function readTransfer(text: string): ReadableTransfer { return readableTransferSchema.parse(JSON.parse(text)) }
-export function writeTransfer(value: ReadableTransfer): string { return JSON.stringify(readableTransferSchema.parse(value)) }
+export function parseTransfer(value: unknown): ReadableTransfer { return readableTransferSchema.parse(value) }
+export function readTransfer(text: string): ReadableTransfer { return parseTransfer(JSON.parse(text)) }
+export function writeTransfer(value: ReadableTransfer): string { return JSON.stringify(parseTransfer(value)) }

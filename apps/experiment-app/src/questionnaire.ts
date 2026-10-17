@@ -99,7 +99,7 @@ export class QuestionnaireBook {
   constructor(previous: { questionnaires: SurveyRun[]; previousSessionIds: string[] } = { questionnaires: [], previousSessionIds: [] }) { this.previous = previous }
   snapshot(): SurveyRun[] { return structuredClone([...this.runs.values()]) }
   get active(): SurveyRun | null { return structuredClone(this.runs.get(this.activeId ?? '') ?? null) }
-  get answering(): boolean { return this.active?.phase === 'answering' }
+  get answering(): boolean { return this.runs.get(this.activeId ?? '')?.phase === 'answering' }
   dismiss() { if (!this.answering) this.activeId = null }
   open(id: string, sessionId: string, target: SurveyTarget, linkedIds: string[], now: number, tasks: readonly SurveyTask[]) {
     const existing = this.runs.get(id)
@@ -108,10 +108,11 @@ export class QuestionnaireBook {
         throw new Error('アンケートの再送内容が一致しません。')
       return // Do not reset answers or reopen a submitted survey on retry.
     }
-    if (this.answering || [...this.previous.questionnaires, ...this.snapshot()].some((r) => r.target === target)) throw new Error('現在のアンケートを終了してください。同じ条件は再回答できません。')
+    const runs = [...this.previous.questionnaires, ...this.runs.values()]
+    if (this.answering || runs.some((r) => r.target === target)) throw new Error('現在のアンケートを終了してください。同じ条件は再回答できません。')
     const run = surveyRunSchema.parse({ id, sessionId, target, linkedIds, instrumentVersion: 1, items: surveyItems(target),
       phase: 'answering', requestedAtMs: now, updatedAtMs: now, shownAtMs: null, submittedAtMs: null, answers: {} })
-    if (!validSurveyLinks(run, [...this.previous.questionnaires, ...this.snapshot()], tasks, this.previous.previousSessionIds)) throw new Error('対応する3課題、または両条件のアンケートが終了していません。')
+    if (!validSurveyLinks(run, runs, tasks, this.previous.previousSessionIds)) throw new Error('対応する3課題、または両条件のアンケートが終了していません。')
     this.runs.set(id, run); this.activeId = id
   }
   present(id: string, now: number) {
