@@ -6,10 +6,10 @@ import type { SurveyRun } from './questionnaire'
 import { readSetting, getOrCreateSetting } from './checkpoint'
 import { downloadText } from './download'
 
-export default function ParticipantManager({ participant, selected, onSelect, locked, management, tasks, surveys, pending, onFailure, onRetry, jsonExported, csvExported, verified, variant }: {
+export default function ParticipantManager({ participant, selected, onSelect, locked, management, tasks, retryTasks, surveys, pending, retryDisabled, onFailure, onRetry, jsonExported, csvExported, verified, variant }: {
   variant: 'setup' | 'details'
   participant: Participant | null; selected: Participant | null; onSelect: (p: Participant | null) => void
-  locked: boolean; management: Management; tasks: TaskRun[]; surveys: SurveyRun[]; pending: boolean
+  locked: boolean; management: Management; tasks: TaskRun[]; retryTasks: TaskRun[]; surveys: SurveyRun[]; pending: boolean; retryDisabled: boolean
   onFailure: (failure: Omit<Failure, 'recordedAtControllerMs'>) => void; onRetry: (originalRunId: string) => void
   jsonExported: boolean; csvExported: boolean; verified: boolean
 }) {
@@ -34,7 +34,7 @@ export default function ParticipantManager({ participant, selected, onSelect, lo
   }
   const current = participant ?? selected
   const step = current ? nextStep(current, tasks, surveys, management) : null
-  const original = tasks.find((t) => t.id === originalId)
+  const original = retryTasks.find((t) => t.id === originalId)
   const recorded = management.failures.find((f) => f.originalRunId === originalId)
   const retryIntent = management.retries.find((r) => r.originalRunId === originalId)
   const retried = management.retries.some((r) => r.retryRunId === originalId) || (retryIntent !== undefined && tasks.some((t) => t.id === retryIntent.retryRunId))
@@ -70,14 +70,14 @@ export default function ParticipantManager({ participant, selected, onSelect, lo
     <details data-retry-panel><summary>技術的不成立・再実施（元の記録を保持）</summary>
       <p>誤判定・unknown・誤答・観察漏れは再実施の理由にしません。技術的不成立のみ、原因解消と本人の同意後に元課題につき1回までです。</p>
       <label>元の課題 <select value={originalId} onChange={(event) => { setOriginalId(event.currentTarget.value); setConsent(false); setReason('') }}>
-        <option value="">選択してください</option>{tasks.filter((t) => t.purpose === 'main').map((t) => <option key={t.id} value={t.id}>{t.taskId} ／ {t.mode} ／ {t.phase} ／ {t.id.slice(0, 8)}</option>)}
+        <option value="">選択してください</option>{retryTasks.filter((t) => t.purpose === 'main').map((t) => <option key={t.id} value={t.id}>{t.taskId} ／ {t.mode} ／ {t.phase} ／ {t.id.slice(0, 8)}</option>)}
       </select></label>
       <label>不成立の種類 <select value={category} onChange={(event) => setCategory(failureCategorySchema.parse(event.currentTarget.value))}>{failureCategorySchema.options.map((c) => <option key={c} value={c}>{failureLabels[c]}</option>)}</select></label>
       <label>具体的な理由 <textarea value={reason} maxLength={1000} onChange={(event) => setReason(event.currentTarget.value)} /></label>
       <button disabled={!original || !reason.trim() || !!recorded || pending} onClick={() => onFailure({ originalRunId: originalId, category, reason: reason.trim() })}>技術的不成立を記録し、課題を中断</button>
       {recorded && <p>記録済みの理由：{recorded.reason}</p>}
       <label><input type="checkbox" checked={consent} onChange={(event) => setConsent(event.currentTarget.checked)} /> 原因を解消し、本人から再実施への同意を得た</label>
-      <button disabled={!recorded || !original || !['complete', 'aborted'].includes(original.phase) || retried || !consent || pending} onClick={() => onRetry(originalId)}>{retryIntent && !retried ? '記録済みの再実施要求を送信' : '同じ課題を1回再実施'}</button>
+      <button disabled={!recorded || !original || !['complete', 'aborted'].includes(original.phase) || retried || !consent || pending || retryDisabled} onClick={() => onRetry(originalId)}>{retryIntent && !retried ? '記録済みの再実施要求を送信' : '同じ課題を1回再実施'}</button>
       <ul>{management.retries.map((r) => <li key={r.retryRunId}>{r.originalRunId} → {r.retryRunId} ／ {r.reason}</li>)}</ul>
     </details>
     </>}

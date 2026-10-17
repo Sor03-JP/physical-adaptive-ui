@@ -14,6 +14,26 @@ it('verifies matching files and distinguishes a valid different recording', asyn
   expect((await readSavedFile(file, async () => [other])).same).toBe(false)
 })
 
+it('rejects a previously matching snapshot if missing sensor data arrives during file reading', async () => {
+  const current = new TransferCollector(metadata, 2000)
+  current.updateStatus(1, { endedAtMs: 100, stopReason: 'manual' })
+  const saved = current.export()
+  expect(current.matchesSnapshot(saved)).toBe(true)
+  const text = writeExperimentFile([saved])
+  const file = new File([text], 'partial.json')
+  let finishRead!: (text: string) => void
+  const read = vi.spyOn(file, 'text').mockImplementation(() => new Promise((resolve) => { finishRead = resolve }))
+  const checking = readSavedFile(file, async () => [current.export()])
+  await vi.waitFor(() => expect(read).toHaveBeenCalled())
+  expect(current.receive(0, [{ receivedAtMs: 17, eventTimestampMs: 17, reportedIntervalRaw: null, receivedIntervalMs: null,
+    acceleration: { x: 0, y: 0, z: 0 }, accelerationIncludingGravity: null, rotationRate: null }], 101)).toBe(true)
+  finishRead(text)
+  const result = await checking
+  expect(result.same).toBe(true)
+  expect(current.matchesSnapshot(result.records!.at(-1)!)).toBe(false)
+  expect(current.matchesSnapshot(current.export())).toBe(true)
+})
+
 it('accepts an exported continuation bundle larger than the normal file limit', async () => {
   const root = new TransferCollector(metadata, 2000)
   root.setParticipant({ participantId: 'test01', group: 'G1', rosterId: 'rehearsal' })
