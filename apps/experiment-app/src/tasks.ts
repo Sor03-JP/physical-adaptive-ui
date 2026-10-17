@@ -7,6 +7,12 @@ import type { ExperimentMode, PresentationMetrics, RenderedTaskContext } from '.
 
 export * from './task-schema'
 
+export function taskSnapshots(history: ReadonlyMap<string, TaskRun>, current: TaskRun | null): TaskRun[] {
+  const tasks = new Map(history)
+  if (current) tasks.set(current.id, current)
+  return [...tasks.values()]
+}
+
 export function canStartPractice(recordingActive: boolean, tasks: readonly Pick<TaskRun, 'purpose' | 'phase'>[], answeringSurvey: boolean): boolean {
   return recordingActive && !answeringSurvey && tasks.length < 100
     && tasks.every((task) => task.purpose === 'practice' && ['complete', 'aborted'].includes(task.phase))

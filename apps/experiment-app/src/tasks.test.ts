@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { TransitTrial, taskRunSchema, transitTasks, targetTrainIndex } from './tasks'
+import { TransitTrial, taskRunSchema, transitTasks, targetTrainIndex, taskSnapshots } from './tasks'
 
 function preparedTrial(...args: ConstructorParameters<typeof TransitTrial>) {
   const trial = new TransitTrial(...args)
@@ -10,6 +10,19 @@ import { TransferCollector, readTransfer, writeTransfer } from './transfer'
 import { messageSchema } from './protocol'
 
 const metadata = { sessionId: 'session', startedAt: '2026-10-16T00:00:00.000Z', timeOriginMs: 1000, startedAtMs: 0, userAgent: 'test' }
+
+it('uses the latest task for checkpoints and transfer without duplicating or changing stored history', () => {
+  const trial = new TransitTrial('one', 'session', 'A1', 0)
+  const original = trial.snapshot(), history = new Map([[original.id, original]])
+  expect(taskSnapshots(history, null)).toEqual([original])
+  trial.present(1); trial.begin(2); trial.present(3)
+  const latest = trial.snapshot()
+  expect(taskSnapshots(history, latest)).toEqual([latest])
+  expect([...history.values()]).toEqual([original])
+  const next = new TransitTrial('two', 'session', 'A2', 4).snapshot()
+  expect(taskSnapshots(history, next)).toEqual([original, next])
+  expect(taskSnapshots(new Map(), null)).toEqual([])
+})
 
 describe('next-departure selection flow', () => {
   it('records wrong selections, first correct input and presentation, and the final selection separately', () => {

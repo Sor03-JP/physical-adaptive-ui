@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useEffectEvent, useRef, useState } from 'react'
 import { createBrowserMotionSource } from '@physical-adaptive/device-motion'
 import type { DeviceMotionSource, MotionSample } from '@physical-adaptive/device-motion'
-import { hasCompleteAcceleration, MeasurementRecorder } from './recording'
+import { hasCompleteAcceleration, MeasurementRecorder, MAX_SAMPLES } from './recording'
 import type { StopReason } from './recording'
 import type { Identity, Message, PhoneStatus } from './protocol'
 import { useMeasurementTransport } from './transport'
@@ -10,13 +10,13 @@ import { readPhoneCheckpoint } from './phone-checkpoint'
 import type { PhoneArchive } from './phone-checkpoint'
 import type { Participant } from './management'
 import type { Continuation } from './continuation'
-import { assessableTasks } from './management'
+import { assessableTasks, emptyManagement } from './management'
 import { estimationConfig } from './estimation'
 import TransitTaskScreen from './TransitTaskScreen'
 import QuestionnaireScreen from './QuestionnaireScreen'
 import PhonePreparation from './PhonePreparation'
 import { QuestionnaireBook } from './questionnaire'
-import { TransitTrial, canStartPractice } from './tasks'
+import { TransitTrial, canStartPractice, taskSnapshots } from './tasks'
 import type { PresentationMetrics, RenderedTaskContext } from './adaptation'
 import type { TaskRun } from './tasks'
 import type { SurveyRun } from './questionnaire'
@@ -66,14 +66,11 @@ export default function Sensor({ identity }: { identity: Identity }) {
     snapshot: (sampleStart, estimateStart) => {
       const current = recorder.current
       if (!current || recovered.current) return null
-      const allTasks = new Map(taskHistory.current)
-      const currentTask = trial.current?.snapshot()
-      if (currentTask) allTasks.set(currentTask.id, currentTask)
       return { sessionId: current.metadata.sessionId, sampleStart, estimateStart,
-        samples: current.batch(sampleStart, 30000), estimates: current.estimateBatch(estimateStart, 30000),
+        samples: current.batch(sampleStart, MAX_SAMPLES), estimates: current.estimateBatch(estimateStart, MAX_SAMPLES),
         header: { ...(continuation.current ? { continuation: continuation.current } : {}), format: 'physical-adaptive-phone-checkpoint', version: 1,
           metadata: current.metadata, participant: participant.current, completion: current.completion,
-          config: current.estimationConfig, savedThroughMs: performance.now(), tasks: [...allTasks.values()], questionnaires: questionnaires.current.snapshot() } }
+          config: current.estimationConfig, savedThroughMs: performance.now(), tasks: taskSnapshots(taskHistory.current, trial.current?.snapshot() ?? null), questionnaires: questionnaires.current.snapshot() } }
     },
     restore: (saved) => {
       recovered.current = readPhoneCheckpoint(saved)
@@ -169,10 +166,7 @@ export default function Sensor({ identity }: { identity: Identity }) {
         error.current = ''
       } else if ('sessionId' in message && current && message.sessionId === current.metadata.sessionId) {
         if (message.type === 'pull-tasks') {
-          const tasks = new Map(taskHistory.current)
-          const latestTask = trial.current?.snapshot()
-          if (latestTask) tasks.set(latestTask.id, latestTask)
-          send({ type: 'task-history', sessionId: message.sessionId, tasks: [...tasks.values()] })
+          send({ type: 'task-history', sessionId: message.sessionId, tasks: taskSnapshots(taskHistory.current, trial.current?.snapshot() ?? null) })
         }
         if (message.type === 'stop') finish('manual')
         if (message.type === 'clear') {
@@ -189,7 +183,7 @@ export default function Sensor({ identity }: { identity: Identity }) {
           const previous = trial.current?.snapshot()
           if (previous) taskHistory.current.set(previous.id, previous)
           questionnaires.current.open(message.surveyId, message.sessionId, message.target, message.linkedIds,
-            performance.now(), assessableTasks([...(continuation.current?.tasks ?? []), ...taskHistory.current.values()], continuation.current?.management ?? { participant: null, failures: [], retries: [], controllerRestarts: [] }))
+            performance.now(), assessableTasks([...(continuation.current?.tasks ?? []), ...taskHistory.current.values()], continuation.current?.management ?? emptyManagement()))
           renderSurvey(); error.current = ''
         }
         if (message.type === 'task-start') {
@@ -265,9 +259,7 @@ export default function Sensor({ identity }: { identity: Identity }) {
 
   function practiceAvailable() {
     const all = new Map([...(continuation.current?.tasks ?? []).filter((t) => t.purpose !== 'practice' || t.phase === 'complete').map((t) => [t.id, t] as const), ...taskHistory.current])
-    const current = trial.current?.snapshot()
-    if (current) all.set(current.id, current)
-    return storage.ready && !storage.error && !recovered.current && connected && controller && canStartPractice(recorder.current?.active ?? false, [...all.values()], questionnaires.current.answering)
+    return storage.ready && !storage.error && !recovered.current && connected && controller && canStartPractice(recorder.current?.active ?? false, taskSnapshots(all, trial.current?.snapshot() ?? null), questionnaires.current.answering)
   }
   function startPractice() {
     const current = recorder.current
