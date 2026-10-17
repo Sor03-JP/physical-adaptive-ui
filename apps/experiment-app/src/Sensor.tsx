@@ -18,8 +18,8 @@ import QuestionnaireScreen from './QuestionnaireScreen'
 import PhonePreparation from './PhonePreparation'
 import { QuestionnaireBook } from './questionnaire'
 import { TransitTrial, canStartPractice, taskSnapshots } from './tasks'
-import type { PresentationMetrics, RenderedTaskContext } from './adaptation'
-import type { TaskRun } from './tasks'
+import type { ExperimentMode, PresentationMetrics, RenderedTaskContext } from './adaptation'
+import type { TaskRun, TrialTaskId } from './tasks'
 import type { SurveyRun } from './questionnaire'
 
 export default function Sensor({ identity }: { identity: Identity }) {
@@ -192,12 +192,8 @@ export default function Sensor({ identity }: { identity: Identity }) {
             if (questionnaires.current.answering) throw new Error('アンケート回答を終了してから次の課題を開始してください。')
             if (!current.active) throw new Error('センサー記録中に課題を開始してください。')
             if (trial.current && !trial.current.complete) throw new Error('現在の課題を終了してから次を開始してください。')
-            const previous = trial.current?.snapshot()
-            if (previous) taskHistory.current.set(previous.id, previous)
-            questionnaires.current.dismiss(); renderSurvey()
-            trial.current = new TransitTrial(message.runId, message.sessionId, message.taskId, performance.now(), message.mode)
-            trial.current.updateAdaptation(current.latestEstimate, performance.now())
-            renderTask(); error.current = ''
+            startTrial(message.runId, message.taskId, message.mode)
+            error.current = ''
           }
         }
         if (message.type === 'task-abort' && trial.current?.snapshot().id === message.runId) {
@@ -262,15 +258,20 @@ export default function Sensor({ identity }: { identity: Identity }) {
     const all = new Map([...(continuation.current?.tasks ?? []).filter((t) => t.purpose !== 'practice' || t.phase === 'complete').map((t) => [t.id, t] as const), ...taskHistory.current])
     return storage.ready && !storage.error && !recovered.current && connected && controller && canStartPractice(recorder.current?.active ?? false, taskSnapshots(all, trial.current?.snapshot() ?? null), questionnaires.current.answering)
   }
-  function startPractice() {
+  function startTrial(runId: string, taskId: TrialTaskId, mode: ExperimentMode) {
     const current = recorder.current
-    if (!current || !practiceAvailable()) return
+    if (!current) return
     const previous = trial.current?.snapshot()
     if (previous) taskHistory.current.set(previous.id, previous)
     questionnaires.current.dismiss(); renderSurvey(); setDismissedPracticeId(null)
-    trial.current = new TransitTrial(crypto.randomUUID(), current.metadata.sessionId, 'P1', performance.now(), 'automatic')
+    trial.current = new TransitTrial(runId, current.metadata.sessionId, taskId, performance.now(), mode)
     trial.current.updateAdaptation(current.latestEstimate, performance.now())
-    renderTask(); send(snapshot()); void storage.flush()
+    renderTask()
+  }
+  function startPractice() {
+    if (!practiceAvailable()) return
+    startTrial(crypto.randomUUID(), 'P1', 'automatic')
+    send(snapshot()); void storage.flush()
   }
   function practiceAction(action: 'begin' | 'confirm') {
     if (trial.current?.snapshot().purpose !== 'practice') return

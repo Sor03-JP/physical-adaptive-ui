@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { readTransfer, writeTransfer } from './transfer'
+import { parseTransfer, writeTransfer } from './transfer'
 import type { ReadableTransfer } from './transfer'
 import type { SessionJournal } from './checkpoint'
 import { MAX_FILE_BYTES, readRecording } from './recording-schema'
@@ -26,15 +26,18 @@ function validateChain(records: ReadableTransfer[]) {
   }
   return records
 }
+function parseExperimentFile(value: unknown): ReadableTransfer[] {
+  if (value && typeof value === 'object' && 'format' in value && value.format === 'physical-adaptive-experiment-bundle')
+    return validateChain(bundleSchema.parse(value).records.map(parseTransfer))
+  return [parseTransfer(value)]
+}
 export function readExperimentFile(text: string): ReadableTransfer[] {
-  const value = JSON.parse(text)
-  if (value?.format !== 'physical-adaptive-experiment-bundle') return [readTransfer(text)]
-  return validateChain(bundleSchema.parse(value).records.map((record) => readTransfer(JSON.stringify(record))))
+  return parseExperimentFile(JSON.parse(text))
 }
 export function writeExperimentFile(records: ReadableTransfer[]): string {
   if (records.length === 1) return writeTransfer(records[0]!)
   const value = { format: 'physical-adaptive-experiment-bundle', version: 1, records }
-  return JSON.stringify({ ...value, records: readExperimentFile(JSON.stringify(value)) })
+  return JSON.stringify({ ...value, records: parseExperimentFile(value) })
 }
 
 export async function readSavedFile(file: File, getRecords: () => Promise<ReadableTransfer[]>) {
@@ -65,7 +68,7 @@ export async function loadExperimentRecords(current: ReadableTransfer, journal: 
     const saved = head ? await journal.load(head.key) : null
     if (!saved) throw new Error('続行元の保存記録が見つかりません。記録を保持して確認してください。')
     const header = saved.header as { inference: object }
-    const previous = readTransfer(JSON.stringify({ ...header, samples: saved.samples, inference: { ...header.inference, estimates: saved.estimates } }))
+    const previous = parseTransfer({ ...header, samples: saved.samples, inference: { ...header.inference, estimates: saved.estimates } })
     records.push(previous); seen.add(previous.metadata.sessionId)
   }
   return validateChain(records.reverse())
