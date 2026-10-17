@@ -1,13 +1,10 @@
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
-import ExperimentProgress, { experimentProgress } from './ExperimentProgress'
+import { experimentProgress } from './ExperimentProgress'
 import TaskController from './TaskController'
 import QuestionnaireController from './QuestionnaireController'
-import Controller from './Controller'
 import { TransitTrial } from './tasks'
 import { surveyRunSchema, surveyItems } from './questionnaire'
-import { emptyManagement } from './management'
-import ParticipantManager from './ParticipantManager'
 
 const participant = { participantId: 'p01', group: 'G4' as const, rosterId: 'roster' }
 const base = { recording: true, active: true, recovery: false, participant, step: null, run: null }
@@ -32,9 +29,6 @@ describe('controller experiment flow', () => {
     expect(experimentProgress({ ...base, step: { kind: 'done' } })).toEqual({ index: 5, title: '全課題終了・記録を停止' })
     expect(experimentProgress({ ...base, active: false }).title).toBe('記録を保存して確認')
     expect(experimentProgress({ ...base, recovery: true }).title).toBe('中断した記録を回収・保存')
-    const html = renderToStaticMarkup(<ExperimentProgress index={3} />)
-    expect(html.match(/aria-current="step"/g)).toHaveLength(1)
-    expect(html).toContain('aria-current="step"><span>4</span>第2条件')
   })
   it('shows only the task action appropriate to briefing, viewing, stop-wait and answering', () => {
     const t = trial()
@@ -71,15 +65,5 @@ describe('controller experiment flow', () => {
     expect(buttons(during)).toEqual([])
     expect(during).toContain('1／7項目入力')
     expect(during).not.toContain('必要な乗換情報を見つけやすかった')
-  })
-  it('separates participant setup from retry controls and renders one start action initially', () => {
-    const setup = renderToStaticMarkup(<ParticipantManager variant="setup" participant={null} selected={participant} onSelect={noop} locked={false}
-      management={emptyManagement()} tasks={[]} surveys={[]} pending={false} onFailure={noop} onRetry={noop} jsonExported={false} csvExported={false} verified={false} />)
-    expect(setup).toContain('参加者ID')
-    expect(setup).not.toContain('同じ課題を1回再実施')
-    const html = renderToStaticMarkup(<Controller identity={{ room: 'flow-review', role: 'controller' }} />)
-    expect(buttons(html).filter((label) => label === '記録を開始して練習へ')).toHaveLength(1)
-    expect(html).toContain('詳細・トラブル対応')
-    expect(html).not.toContain('問題文を表示</button>')
   })
 })

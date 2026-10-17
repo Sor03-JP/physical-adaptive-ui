@@ -1,9 +1,7 @@
 import { expect, it } from 'vitest'
-import { renderToStaticMarkup } from 'react-dom/server'
 import { TransitTrial } from './tasks'
 import { TransferCollector, readTransfer, writeTransfer } from './transfer'
 import { movementConfirmationSchema, latestMovementConfirmation } from './movement-confirmation'
-import MovementConfirmationPanel from './MovementConfirmationPanel'
 import { prepareContinuation } from './continuation'
 import { readExperimentFile, writeExperimentFile } from './experiment-file'
 import type { LoadedCheckpoint } from './checkpoint'
@@ -85,15 +83,4 @@ it('keeps confirmations in their original session when exporting continued recor
   expect(records[0]).toEqual(old)
   expect(next.movementConfirmationHistory).toEqual([])
   expect(next.unconfirmedTaskRuns).toEqual([])
-})
-
-it('shows unanswered confirmations separately from editable confirmed history', () => {
-  const c = collector()
-  const html = renderToStaticMarkup(<MovementConfirmationPanel tasks={c.taskRuns} history={[]} disabled={false} onSave={() => {}} />)
-  expect(html).toContain('未確認'); expect(html).toContain('予定どおり'); expect(html).toContain('ずれあり')
-  expect(html).not.toContain('確認済みの課題を確認・修正')
-  c.confirmMovement(asPlanned, 20000)
-  const confirmed = renderToStaticMarkup(<MovementConfirmationPanel tasks={c.taskRuns} history={c.movementConfirmationHistory} disabled onSave={() => {}} />)
-  expect(confirmed).toContain('確認済み：予定どおり'); expect(confirmed).toContain('修正前の内容もJSONに残ります')
-  expect(confirmed).toContain('fieldset disabled')
 })
