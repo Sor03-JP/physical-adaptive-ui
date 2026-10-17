@@ -3,9 +3,8 @@ import { downloadText } from './download'
 import { writeQuestionnaireCsv } from './questionnaire-csv'
 import type { Participant } from './management'
 import type { SurveyRun } from './questionnaire'
-import { MAX_FILE_BYTES, readRecording } from './recording'
 import type { ReadableMotionSample } from './recording'
-import { readExperimentFile, writeExperimentFile } from './experiment-file'
+import { readSavedFile } from './experiment-file'
 import type { ReadableTransfer } from './transfer'
 
 export default function SavedRecording({ active, reading, setReading, onVerified, getRecords }: {
@@ -24,11 +23,8 @@ export default function SavedRecording({ active, reading, setReading, onVerified
     if (!file || reading) return
     setReading(true); setImported(null); setImportedSurveys([]); setImportedParticipant(null); setError(''); setMessage('')
     try {
-      if (file.size > MAX_FILE_BYTES) throw new Error('too large')
-      const text = await file.text()
-      let same = false
-      try {
-        const records = readExperimentFile(text)
+      const { records, recording, same } = await readSavedFile(file, getRecords)
+      if (records) {
         const data = records.at(-1)!
         setImportedParticipant('management' in data ? data.management.participant : null)
         setImportedSurveys(records.flatMap((record) => 'questionnaires' in record ? record.questionnaires : []))
@@ -42,16 +38,15 @@ export default function SavedRecording({ active, reading, setReading, onVerified
           submittedSurveys: records.reduce((n, r) => n + ('questionnaires' in r ? r.questionnaires.filter((s) => s.phase === 'submitted').length : 0), 0),
           complete: records.length > 1 ? `続行元を含む${records.length}件の計測記録（中断記録も保持）` : 'recovery' in data && data.recovery ? 'iPhone更新による中断・保存範囲を回収' : data.complete ? 'センサー全件受信・停止確認済み' : '途中データ',
           first: records[0]?.samples[0] ?? null, last: data.samples.at(-1) ?? null })
-        same = writeExperimentFile(await getRecords()) === writeExperimentFile(records)
-      } catch {
-        const data = readRecording(text)
+      } else {
+        const data = recording
         setImported({ id: data.sessionId, version: data.version, count: data.samples.length, estimates: 0, tasks: 0, practiceTasks: 0, researchEvents: 0, clockRounds: 0, surveys: 0, submittedSurveys: 0, complete: 'iPhone単体記録',
           first: data.samples[0] ?? null, last: data.samples.at(-1) ?? null })
       }
       if (same) onVerified()
       setMessage(same ? '保存したファイルと、この画面の記録が一致しました。保存確認は完了です。'
         : 'この画面の記録とは一致していません。直前に保存したファイルを選び直してください。別の記録のファイルとしては読み込めています。')
-    } catch { setError('読込みに失敗しました。実測JSONの形式・サイズ・時刻・件数を確認してください。') }
+    } catch (cause) { setError(cause instanceof Error ? cause.message : '保存ファイルを確認できませんでした。') }
     finally { setReading(false) }
   }
 

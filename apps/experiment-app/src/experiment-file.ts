@@ -2,6 +2,7 @@ import { z } from 'zod'
 import { readTransfer, writeTransfer } from './transfer'
 import type { ReadableTransfer } from './transfer'
 import type { SessionJournal } from './checkpoint'
+import { MAX_FILE_BYTES, readRecording } from './recording-schema'
 
 const bundleSchema = z.strictObject({
   format: z.literal('physical-adaptive-experiment-bundle'), version: z.literal(1), records: z.array(z.unknown()).min(2).max(21),
@@ -35,6 +36,22 @@ export function writeExperimentFile(records: ReadableTransfer[]): string {
   const value = { format: 'physical-adaptive-experiment-bundle', version: 1, records }
   return JSON.stringify({ ...value, records: readExperimentFile(JSON.stringify(value)) })
 }
+
+export async function readSavedFile(file: File, getRecords: () => Promise<ReadableTransfer[]>) {
+  let expected: string
+  try { expected = writeExperimentFile(await getRecords()) }
+  catch { throw new Error('PC側の記録を取得・検証できないため、保存ファイルとの照合ができません。端末内保存の状態を確認して、もう一度お試しください。') }
+  try {
+    // A continued recording can exceed the normal limit; allow the size we actually export.
+    if (file.size > Math.max(MAX_FILE_BYTES, new Blob([expected]).size)) throw new Error('too large')
+    const text = await file.text()
+    let records: ReadableTransfer[]
+    try { records = readExperimentFile(text) }
+    catch { return { records: null, recording: readRecording(text), same: false } }
+    return { records, recording: null, same: expected === writeExperimentFile(records) }
+  } catch { throw new Error('読込みに失敗しました。実測JSONの形式・サイズ・時刻・件数を確認してください。') }
+}
+
 /** Parent samples stay in their own checkpoints; load them only for final file export/verification. */
 export async function loadExperimentRecords(current: ReadableTransfer, journal: Pick<SessionJournal, 'list' | 'load'>): Promise<ReadableTransfer[]> {
   const records = [current], seen = new Set([current.metadata.sessionId])
