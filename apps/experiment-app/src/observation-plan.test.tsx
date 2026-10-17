@@ -30,16 +30,16 @@ it('does not infer confirmations from the schedule and keeps conflicting observa
   const run = trial('A2').snapshot(), log = new ResearchRecorder('session', 0)
   log.record({ kind: 'observation', value: 'stationary', controllerAtMs: 5500, taskRunId: run.id, reportedPhase: 'viewing' })
   const before = log.snapshot(), noop = () => {}
-  const html = renderToStaticMarkup(<ObservationPanel compact log={before} run={run} elapsedMs={5000}
-    active busy={false} disabled={false} hidden onHidden={noop} onRecord={noop} onCalibrate={noop} />)
+  const html = renderToStaticMarkup(<ObservationPanel log={before} run={run} elapsedMs={5000}
+    busy={false} disabled={false} hidden onHidden={noop} onCalibrate={noop} />)
   expect(html).toContain('いま案内する動作（予定）')
   expect(html).toContain('movement-current">歩行')
-  expect(html).toContain('この課題の最後の目視入力：<strong>静止確認')
+  expect(html).toContain('観察：静止確認')
   expect(html).not.toContain('を指示した</button>')
   expect(html).not.toContain('変化開始</button>')
   expect(html).not.toContain('aria-pressed="true"')
   expect(log.snapshot()).toEqual(before)
-  const empty = renderToStaticMarkup(<ObservationPanel compact log={null} run={run} elapsedMs={12000}
-    active busy={false} disabled={false} hidden onHidden={noop} onRecord={noop} onCalibrate={noop} />)
-  expect(empty).toContain('この課題の最後の目視入力：<strong>未入力')
+  const empty = renderToStaticMarkup(<ObservationPanel log={null} run={run} elapsedMs={12000}
+    busy={false} disabled={false} hidden onHidden={noop} onCalibrate={noop} />)
+  expect(empty).toContain('まだ記録はありません。')
 })

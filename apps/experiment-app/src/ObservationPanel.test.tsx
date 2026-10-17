@@ -1,38 +1,30 @@
-import { expect, it, vi } from 'vitest'
+import { expect, it } from 'vitest'
 import { renderToStaticMarkup } from 'react-dom/server'
-import ObservationPanel, { canRecordObservation, observationKey } from './ObservationPanel'
+import ObservationPanel from './ObservationPanel'
+import { ResearchRecorder } from './research-log'
 
-it('allows observation through stopping and answering, but locks between tasks and during surveys', () => {
-  for (const phase of ['briefing', 'preparing', 'viewing', 'waiting-stop', 'answering']) {
-    expect(canRecordObservation(phase, false)).toBe(true)
-    expect(canRecordObservation(phase, true)).toBe(false)
-  }
-  for (const phase of [null, 'complete', 'aborted']) expect(canRecordObservation(phase, false)).toBe(false)
-  const noop = () => {}
-  const html = renderToStaticMarkup(<ObservationPanel compact log={null} active={false} busy={false} disabled={false}
-    hidden={true} onHidden={noop} onRecord={noop} onCalibrate={noop} />)
-  const recordingButtons = [...html.matchAll(/<button\b([^>]*)>(.*?)<\/button>/gs)].filter((match) => !match[2]!.includes('時刻合わせ'))
-  expect(recordingButtons).toHaveLength(5)
-  for (const match of recordingButtons) expect(match[1]).toContain('disabled=""')
-  expect(html).toContain('本番課題の回答終了後に')
+const props = { log: null, run: null, elapsedMs: 0, busy: false, disabled: false, hidden: true, onHidden: () => {}, onCalibrate: () => {} }
+
+it('leaves only calibration controls and directs movement confirmation to the end of the task', () => {
+  const html = renderToStaticMarkup(<ObservationPanel {...props} />)
+  const buttons = [...html.matchAll(/<button\b([^>]*)>(.*?)<\/button>/gs)]
+  expect(buttons).toHaveLength(1)
+  expect(buttons[0]![2]).toContain('時刻合わせを再計測')
+  expect(html).toContain('回答終了後に「予定どおり／ずれあり」を記録')
+  const busy = renderToStaticMarkup(<ObservationPanel {...props} busy />)
+  expect(busy).toMatch(/<button disabled="">時刻合わせ/)
+  expect(busy).toContain('時刻合わせ中')
+  const disabled = renderToStaticMarkup(<ObservationPanel {...props} disabled />)
+  expect(disabled).toMatch(/<button disabled="">時刻合わせ/)
 })
 
-it('records individual observation keys but ignores repeats, shortcuts and focused controls', () => {
-  const event = { code: 'Space', repeat: false, ctrlKey: false, metaKey: false, altKey: false }
-  expect(observationKey(event, null)).toBeNull()
-  for (const [code, kind] of [['Digit1', 'stationary'], ['Digit2', 'walking'], ['Digit3', 'running'], ['Digit4', 'uncertain'], ['Digit5', 'missed']])
-    expect(observationKey({ ...event, code: code! }, null)).toBe(kind)
-  expect(observationKey({ ...event, repeat: true }, null)).toBeNull()
-  expect(observationKey({ ...event, ctrlKey: true }, null)).toBeNull()
-  expect(observationKey({ ...event, code: 'Enter' }, null)).toBeNull()
-  class FocusTarget {
-    isContentEditable = false
-    constructor(readonly control: boolean) {}
-    closest() { return this.control ? this : null }
-  }
-  vi.stubGlobal('HTMLElement', FocusTarget)
-  try {
-    expect(observationKey(event, new FocusTarget(true) as unknown as EventTarget)).toBeNull()
-    expect(observationKey({ ...event, code: 'Digit2' }, new FocusTarget(false) as unknown as EventTarget)).toBe('walking')
-  } finally { vi.unstubAllGlobals() }
+it('keeps historical instruction and observation events readable without editing them', () => {
+  const recorder = new ResearchRecorder('session', 0)
+  recorder.record({ kind: 'instruction', value: 'walking', controllerAtMs: 100, taskRunId: null, reportedPhase: null })
+  recorder.record({ kind: 'observation', value: 'missed', controllerAtMs: 200, taskRunId: null, reportedPhase: null })
+  const before = recorder.snapshot()
+  const html = renderToStaticMarkup(<ObservationPanel {...props} log={before} />)
+  expect(html).toContain('観察1件／指示1件')
+  expect(html).toContain('指示：歩行を指示した'); expect(html).toContain('観察：見落とし・記録不能')
+  expect(recorder.snapshot()).toEqual(before)
 })

@@ -2,8 +2,6 @@ import { z } from 'zod'
 
 const time = z.number().finite().nonnegative()
 export const observedStateSchema = z.enum(['stationary', 'walking', 'running'])
-export const observationKindSchema = z.enum(['transition', 'stationary', 'walking', 'running', 'uncertain', 'missed'])
-export type ObservationKind = z.infer<typeof observationKindSchema>
 export const observationProtocolSchema = z.strictObject({
   method: z.enum(['state-confirmation', 'post-task-confirmation']),
   instructionTiming: z.strictObject({ firstMs: z.number().positive(), secondMs: z.number().positive() })
