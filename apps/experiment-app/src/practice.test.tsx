@@ -77,11 +77,11 @@ it('preserves practice and main labels in JSON and reads version 9 without addin
   const main = new TransitTrial('main', 'session', 'A1', 30000)
   collector.updateTask(main.snapshot())
   const data = collector.export()
-  expect(data.version).toBe(12)
+  expect(data.version).toBe(13)
   expect(data.tasks.map((task) => task.purpose)).toEqual(['practice', 'main'])
   expect(readTransfer(writeTransfer(data))).toEqual(data)
   const { purpose: _purpose, ...previousMain } = main.snapshot()
-  const { observationProtocol: _observationProtocol, management: _management, recovery: _recovery, ...version10 } = data
+  const { movementConfirmations: _movementConfirmations, observationProtocol: _observationProtocol, management: _management, recovery: _recovery, ...version10 } = data
   const previous = { ...version10, version: 9, tasks: [previousMain] }
   expect(readTransfer(JSON.stringify(previous))).toEqual(previous)
   expect(JSON.parse(writeTransfer(readTransfer(JSON.stringify(previous))))).toEqual(previous)

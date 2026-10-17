@@ -49,8 +49,8 @@ export default function ObservationPanel({ log, active, busy, disabled, hidden, 
   const observations = events.filter((event) => event.kind === 'observation').length
   const lastTime = (event: ResearchEvent | undefined) => event ? `${(event.controllerAtMs / 1000).toFixed(1)}秒（PC記録時刻）` : ''
   return <section>
-    <h2>目視確認</h2>
-    {!active && <p className="notice" role="status">目視確認の入力は待機中です。次の問題文が表示されると、ボタン・キーで記録できます。</p>}
+    <h2>動作の案内</h2>
+    {!active && <p className="notice" role="status">動作の案内は待機中です。本番課題の回答終了後に、動作が予定どおりだったか確認してください。</p>}
     {active && guide && <div className="movement-guide" aria-label="予定の動作">
       <p>{run?.phase === 'briefing' || run?.phase === 'preparing' ? '開始時の動作' : 'いま案内する動作（予定）'}</p>
       <p className="movement-current">{movementLabels[guide.state]}</p>
@@ -60,7 +60,8 @@ export default function ObservationPanel({ log, active, busy, disabled, hidden, 
       <p><small>実際の動作を見て確認してください。予定を正解として自動記録しません。時間はiPhoneの最新報告を基準にしています。</small></p>
     </div>}
     {active && run?.purpose === 'practice' && <p>練習中です。実験者の案内で動き、実際の足運びだけを確認してください。</p>}
-    <div className="observation-group">
+    <p>口頭で案内しながら動作を目視してください。途中のボタン入力は不要です。回答終了後に「予定どおり／ずれあり」を記録します。</p>
+    <details className="observation-group"><summary>任意の追加記録（課題中の目視入力）</summary>
       <p>動作が変わったら、実際に確認できた状態を1回押してください。予定と違う状態も、そのまま選べます。</p>
       <div className="observation-buttons">{(['stationary', 'walking', 'running'] as const).map((value) => <button key={value}
         className={active && guide?.state === value ? 'primary' : undefined} disabled={!active}
@@ -70,10 +71,10 @@ export default function ObservationPanel({ log, active, busy, disabled, hidden, 
       <div className="controls">{(['uncertain', 'missed'] as const).map((value) => <button key={value} disabled={!active}
         onClick={() => onRecord(value)}>{labels[value]}<kbd> {keyLabels[value]}</kbd></button>)}</div>
       <p><small>キー：1＝静止、2＝歩行、3＝走行、4＝判定困難、5＝見落とし。キー操作前にこの説明文をクリックしてください。</small></p>
-    </div>
+    </details>
     <details className="observation-history"><summary>記録履歴・出力（観察{observations}件／指示{events.length - observations}件）</summary>
       <p>目視確認は端末内保存の対象です。終了後、PCの「保存」から全記録JSONを出力してください。アンケートCSVには含まれません。</p>
-      <p>JSONには目視の入力時刻・動作・課題ID・最後に届いた課題段階を記録します。動作予定の設定は observationProtocol、確認記録は research.events に分けます。口頭指示と変化開始の実時刻は入力しません。</p>
+      <p>JSONには目視の入力時刻・動作・課題ID・最後に届いた課題段階を記録します。動作予定の設定は observationProtocol、終了後の確認は movementConfirmations、任意の目視入力は research.events に分けます。口頭指示と変化開始の実時刻は入力しません。</p>
       <p><small>以下は最近の5件。全件はJSONの research.events、時刻合わせは research.rounds に保存されます。時刻はPC基準であり、動作開始の正解時刻ではありません。</small></p>
       {events.length ? <ol>{events.slice(-5).map((event, index) => <li key={index}>
         {event.kind === 'instruction' ? '指示' : '観察'}：{eventLabel(event)} ／ {lastTime(event)} ／ {event.reportedPhase ?? '課題外'}

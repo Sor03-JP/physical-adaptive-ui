@@ -14,7 +14,7 @@ it('allows observation through stopping and answering, but locks between tasks a
   const recordingButtons = [...html.matchAll(/<button\b([^>]*)>(.*?)<\/button>/gs)].filter((match) => !match[2]!.includes('時刻合わせ'))
   expect(recordingButtons).toHaveLength(5)
   for (const match of recordingButtons) expect(match[1]).toContain('disabled=""')
-  expect(html).toContain('次の問題文が表示されると')
+  expect(html).toContain('本番課題の回答終了後に')
 })
 
 it('records individual observation keys but ignores repeats, shortcuts and focused controls', () => {
