@@ -76,7 +76,7 @@ describe('PC observation and clock records', () => {
     reply(collector.research, probe, 1000)
     collector.research.poll(1100)
     const data = collector.export()
-    expect(data.version).toBe(12)
+    expect(data.version).toBe(13)
     expect(readTransfer(writeTransfer(data))).toEqual(data)
     expect(data.samples).toEqual([])
     expect(data.research.events).toHaveLength(1)

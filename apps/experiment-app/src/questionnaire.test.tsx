@@ -96,14 +96,14 @@ describe('questionnaires tied to task records', () => {
     const book = completedBook()
     expect(collector.updateQuestionnaires(book.snapshot())).toBe(true)
     const data = collector.export()
-    expect(data.version).toBe(12)
+    expect(data.version).toBe(13)
     expect(readTransfer(writeTransfer(data))).toEqual(data)
     expect(data.questionnaires[1]?.answers.q6).toBe('cannot-judge')
     expect(data.questionnaires[2]?.linkedIds).toEqual(['normal', 'automatic'])
     const corrupted = structuredClone(data)
     corrupted.questionnaires[0]!.linkedIds[0] = 'missing-task'
     expect(() => readTransfer(JSON.stringify(corrupted))).toThrow()
-    const { observationProtocol: _observationProtocol, management: _management, recovery: _recovery, ...version10 } = data
+    const { movementConfirmations: _movementConfirmations, observationProtocol: _observationProtocol, management: _management, recovery: _recovery, ...version10 } = data
     const { questionnaires: _questionnaires, ...older } = version10
     const version9 = { ...version10, version: 9, tasks: data.tasks.map(({ purpose: _purpose, ...task }) => task) }
     expect(readTransfer(JSON.stringify(version9))).toEqual(version9)

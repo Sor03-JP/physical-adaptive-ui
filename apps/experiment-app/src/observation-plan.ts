@@ -3,7 +3,7 @@ import type { TaskRun } from './task-schema'
 import type { ObservationProtocol } from './research-log'
 
 export const currentObservationProtocol: ObservationProtocol = {
-  method: 'state-confirmation', instructionTiming: { ...taskInstructionTiming },
+  method: 'post-task-confirmation', instructionTiming: { ...taskInstructionTiming },
 }
 export const movementLabels = { stationary: '静止', walking: '歩行', running: '軽いジョギング' }
 type Movement = keyof typeof movementLabels

@@ -1,4 +1,6 @@
 import { z } from 'zod'
+import { movementConfirmationSchema, pendingMovementConfirmations, validMovementConfirmation } from './movement-confirmation'
+import type { MovementConfirmation, MovementConfirmationInput } from './movement-confirmation'
 import { emptyManagement, managementSchema, assessableTasks } from './management'
 import type { Participant, Management, Failure, Retry } from './management'
 import type { LoadedCheckpoint, CheckpointDelta } from './checkpoint'
@@ -47,7 +49,8 @@ const version10TransferBase = version9TransferBase.extend({ version: z.literal(1
 const version11TransferBase = version10TransferBase.extend({ version: z.literal(11), management: managementSchema,
   recovery: z.strictObject({ phoneSavedThroughMs: z.number().finite().nonnegative(), detectedAt: z.string().datetime() }).nullable(),
 })
-const currentTransferBase = version11TransferBase.extend({ version: z.literal(12), observationProtocol: observationProtocolSchema.nullable(), continuation: continuationSchema.optional() })
+const version12TransferBase = version11TransferBase.extend({ version: z.literal(12), observationProtocol: observationProtocolSchema.nullable(), continuation: continuationSchema.optional() })
+const currentTransferBase = version12TransferBase.extend({ version: z.literal(13), movementConfirmations: z.array(movementConfirmationSchema).max(1000) })
 const version6TransferBase = version7TransferBase.extend({
   version: z.literal(6), tasks: z.array(previousAdaptiveTaskRunSchema).max(100),
 })
@@ -57,7 +60,7 @@ const readableVersion5Base = version7TransferBase.extend({
 const legacyTransferBase = version2TransferBase.extend({
   version: z.literal(1), samples: z.array(legacySampleSchema).max(MAX_SAMPLES),
 })
-function validateTransfer(value: z.infer<typeof currentTransferBase> | z.infer<typeof version11TransferBase> | z.infer<typeof version10TransferBase> | z.infer<typeof version9TransferBase> | z.infer<typeof version8TransferBase> | z.infer<typeof version7TransferBase> | z.infer<typeof version6TransferBase> | z.infer<typeof readableVersion5Base> | z.infer<typeof version4TransferBase> | z.infer<typeof version3TransferBase> | z.infer<typeof version2TransferBase> | z.infer<typeof legacyTransferBase>, context: z.RefinementCtx) {
+function validateTransfer(value: z.infer<typeof currentTransferBase> | z.infer<typeof version12TransferBase> | z.infer<typeof version11TransferBase> | z.infer<typeof version10TransferBase> | z.infer<typeof version9TransferBase> | z.infer<typeof version8TransferBase> | z.infer<typeof version7TransferBase> | z.infer<typeof version6TransferBase> | z.infer<typeof readableVersion5Base> | z.infer<typeof version4TransferBase> | z.infer<typeof version3TransferBase> | z.infer<typeof version2TransferBase> | z.infer<typeof legacyTransferBase>, context: z.RefinementCtx) {
   if (!hasValidSampleTimes(value.samples, value.metadata.startedAtMs, value.completion?.endedAtMs)) {
     context.addIssue({ code: 'custom', message: 'iPhone側の時刻が不整合です。' })
   }
@@ -83,6 +86,9 @@ function validateTransfer(value: z.infer<typeof currentTransferBase> | z.infer<t
     || !hasValidEstimateTimes(inference.estimates, value.metadata.startedAtMs, value.completion?.endedAtMs))) {
     context.addIssue({ code: 'custom', message: '推定ログの件数・設定・時刻が不整合です。' })
   }
+  if ('movementConfirmations' in value && value.movementConfirmations.some((entry, index) => !validMovementConfirmation(entry, value.tasks)
+    || entry.confirmedAtControllerMs < (value.movementConfirmations[index - 1]?.confirmedAtControllerMs ?? 0)))
+    context.addIssue({ code: 'custom', message: '課題終了後の動作確認と課題・確認時刻が不整合です。' })
   const continuation = 'continuation' in value ? value.continuation : undefined
   const allTasks = 'tasks' in value ? [...(continuation?.tasks ?? []), ...value.tasks] : []
   const allSurveys = 'questionnaires' in value ? [...(continuation?.questionnaires ?? []), ...value.questionnaires] : []
@@ -111,7 +117,7 @@ function validateTransfer(value: z.infer<typeof currentTransferBase> | z.infer<t
   }
 }
 const transferSchema = currentTransferBase.superRefine(validateTransfer)
-const readableTransferSchema = z.discriminatedUnion('version', [currentTransferBase, version11TransferBase, version10TransferBase, version9TransferBase, version8TransferBase, version7TransferBase, version6TransferBase, readableVersion5Base, version4TransferBase, version3TransferBase, version2TransferBase, legacyTransferBase])
+const readableTransferSchema = z.discriminatedUnion('version', [currentTransferBase, version12TransferBase, version11TransferBase, version10TransferBase, version9TransferBase, version8TransferBase, version7TransferBase, version6TransferBase, readableVersion5Base, version4TransferBase, version3TransferBase, version2TransferBase, legacyTransferBase])
   .superRefine(validateTransfer)
 export type Transfer = z.infer<typeof transferSchema>
 export type ReadableTransfer = z.infer<typeof readableTransferSchema>
@@ -119,8 +125,9 @@ export type ReadableTransfer = z.infer<typeof readableTransferSchema>
 export function checkpointTransfer(saved: LoadedCheckpoint): Transfer {
   const header = saved.header as Transfer
   const data = readTransfer(JSON.stringify({ ...header, samples: saved.samples, inference: { ...header.inference, estimates: saved.estimates } }))
-  if (data.version === 11) return { ...data, version: 12, observationProtocol: null }
-  if (data.version !== 12) throw new Error('保存データの復旧形式が一致しません。')
+  if (data.version === 11) return { ...data, version: 13, observationProtocol: null, movementConfirmations: [] }
+  if (data.version === 12) return { ...data, version: 13, movementConfirmations: [] }
+  if (data.version !== 13) throw new Error('保存データの復旧形式が一致しません。')
   return data
 }
 
@@ -142,6 +149,17 @@ export class TransferCollector {
   continuation: Transfer['continuation']
   observationProtocol: Transfer['observationProtocol'] = structuredClone(currentObservationProtocol)
 
+  private movementConfirmations: MovementConfirmation[] = []
+  get movementConfirmationHistory(): MovementConfirmation[] { return structuredClone(this.movementConfirmations) }
+  get unconfirmedTaskRuns(): TaskRun[] { return pendingMovementConfirmations(this.taskRuns, this.movementConfirmations) }
+  confirmMovement(input: MovementConfirmationInput, confirmedAtControllerMs: number) {
+    const entry = movementConfirmationSchema.parse({ ...input, confirmedAtControllerMs })
+    if (!validMovementConfirmation(entry, this.taskRuns)) throw new Error('回答が終了した本番課題を選んでください。')
+    if (entry.confirmedAtControllerMs < (this.movementConfirmations.at(-1)?.confirmedAtControllerMs ?? 0)) throw new Error('確認時刻が逆行しています。')
+    if (this.movementConfirmations.length >= 1000) throw new Error('動作確認の記録上限に達しました。')
+    this.movementConfirmations.push(structuredClone(entry))
+  }
+
   readonly research: ResearchRecorder
 
   constructor(readonly metadata: RecordingMetadata, readonly controllerTimeOriginMs: number, config: EstimationConfig | null = null) {
@@ -157,6 +175,7 @@ export class TransferCollector {
     collector.expectedEstimateCount = data.inference.expectedCount; collector.completion = data.completion
     collector.completeAccelerationCount = data.samples.filter(hasCompleteAcceleration).length
     data.tasks.forEach((t) => collector.tasks.set(t.id, t)); collector.questionnaires = data.questionnaires
+    collector.movementConfirmations = structuredClone(data.movementConfirmations)
     collector.management = data.management; collector.recovery = data.recovery; collector.observationProtocol = data.observationProtocol; collector.continuation = data.continuation
     const resumedAtMs = now + currentTimeOriginMs - data.controllerTimeOriginMs
     collector.research.restore(data.research, resumedAtMs)
@@ -265,7 +284,7 @@ export class TransferCollector {
   private snapshot(includeSamples: boolean): Transfer {
     return {
       ...(this.continuation ? { continuation: structuredClone(this.continuation) } : {}),
-      format: 'physical-adaptive-motion-transfer', version: 12, observationProtocol: structuredClone(this.observationProtocol), management: structuredClone(this.management), recovery: this.recovery,
+      format: 'physical-adaptive-motion-transfer', version: 13, movementConfirmations: this.movementConfirmationHistory, observationProtocol: structuredClone(this.observationProtocol), management: structuredClone(this.management), recovery: this.recovery,
       metadata: this.metadata, completion: this.completion, samples: includeSamples ? this.samples.slice() : [],
       controllerTimeOriginMs: this.controllerTimeOriginMs, expectedCount: this.expectedCount,
       complete: this.complete, receipts: this.receipts.slice(),
