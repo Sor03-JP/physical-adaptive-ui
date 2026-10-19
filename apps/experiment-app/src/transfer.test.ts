@@ -9,6 +9,19 @@ const sample: MotionSample = { receivedAtMs: 20, eventTimestampMs: 19, reportedI
 const completion = { endedAtMs: 30, stopReason: 'manual' as const }
 
 describe('PC transfer collector', () => {
+  it('summarizes a caller-selected window ending at the last phone receipt without changing the recording', () => {
+    const collector = new TransferCollector(metadata, 5000)
+    expect(collector.features(10)).toBeNull()
+    collector.receive(0, [sample], 500)
+    collector.receive(1, [{ ...sample, receivedAtMs: 25, receivedIntervalMs: 5,
+      acceleration: { x: 3, y: 4, z: 0 } }], 900)
+    collector.updateStatus(2, completion)
+    const before = collector.export()
+    expect(collector.features(5)).toMatchObject({ startAtMs: 20, endAtMs: 25, sampleCount: 1,
+      acceleration: { validCount: 1, mean: 5, standardDeviation: 0 } })
+    expect(collector.features(10)?.sampleCount).toBe(2)
+    expect(collector.export()).toEqual(before)
+  })
   it('preserves phone timestamps separately from PC receipt times and round trips the full recording', () => {
     const collector = new TransferCollector(metadata, 5000)
     collector.updateStatus(1, completion)
