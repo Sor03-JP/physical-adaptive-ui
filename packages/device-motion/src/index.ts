@@ -72,7 +72,8 @@ export class DeviceMotionSource {
   private permission: MotionPermission = 'prompt'
   private stopListening: Unsubscribe | null = null
 
-  constructor(private readonly environment: MotionEnvironment) {}
+  private readonly environment: MotionEnvironment
+  constructor(environment: MotionEnvironment) { this.environment = environment }
 
   getPermission(): MotionPermission { return this.permission }
 
