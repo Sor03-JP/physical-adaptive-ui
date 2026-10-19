@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { atom, useAtom } from 'jotai'
 import SavedRecording from './SavedRecording'
 import MovementConfirmationPanel from './MovementConfirmationPanel'
@@ -10,7 +10,8 @@ import type { ContinuationIntent } from './continuation'
 import { readSetting, saveSetting } from './checkpoint'
 import { loadExperimentRecords, writeExperimentFile } from './experiment-file'
 import ParticipantManager from './ParticipantManager'
-import ExperimentProgress, { experimentProgress } from './ExperimentProgress'
+import ExperimentProgress from './ExperimentProgress'
+import { experimentProgress } from './experiment-progress'
 import StoragePanel from './StoragePanel'
 import { useCheckpoint } from './useCheckpoint'
 import { nextStep, emptyManagement, assessableTasks } from './management'
@@ -58,6 +59,13 @@ export default function Controller({ identity }: { identity: Identity }) {
   const [continuing, setContinuing] = useState(false)
   const [selectedParticipant, setSelectedParticipant] = useState<Participant | null>(null)
   const [csvExported, setCsvExported] = useState(false)
+  const refresh = useCallback(() => {
+    const current = collector.current
+    setPanel({ phone: phone.current, received: current?.count ?? 0,
+      estimates: current?.estimateCount ?? 0,
+      valid: current?.summary().completeAccelerationCount ?? 0,
+      complete: current?.complete ?? false, pending: command.current?.type ?? (managementSaving.current ? 'saving' : '') })
+  }, [setPanel])
   function controllerNow() { return performance.now() + performance.timeOrigin - (collector.current?.controllerTimeOriginMs ?? performance.timeOrigin) }
   const storage = useCheckpoint('controller', identity.room, {
     snapshot: (sampleStart, estimateStart) => collector.current?.checkpoint(sampleStart, estimateStart) ?? null,
@@ -84,15 +92,8 @@ export default function Controller({ identity }: { identity: Identity }) {
       refresh()
     }).catch(() => { if (!disposed) setError('続行設定を読み込めませんでした。記録を保持して保存領域を確認してください。') })
     return () => { disposed = true }
-  }, [storage.ready, identity.room])
+  }, [storage.ready, identity.room, refresh])
 
-  function refresh() {
-    const current = collector.current
-    setPanel({ phone: phone.current, received: current?.count ?? 0,
-      estimates: current?.estimateCount ?? 0,
-      valid: current?.summary().completeAccelerationCount ?? 0,
-      complete: current?.complete ?? false, pending: command.current?.type ?? (managementSaving.current ? 'saving' : '') })
-  }
   function receive(packet: Message, receivedAtMs: number) {
     if (!storage.ready || !continuationLoaded.current) return
     receivedAtMs += performance.timeOrigin - (collector.current?.controllerTimeOriginMs ?? (packet.type === 'status' ? packet.continuation?.controllerTimeOriginMs : undefined) ?? performance.timeOrigin)
@@ -175,7 +176,7 @@ export default function Controller({ identity }: { identity: Identity }) {
     }
     window.addEventListener('beforeunload', unload)
     return () => { clearInterval(timer); window.removeEventListener('beforeunload', unload) }
-  }, [send])
+  }, [send, refresh])
 
   function start() {
     if (!continuationLoaded.current || !selectedParticipant || !storage.ready || storage.error || !phone.current?.storage.ready || phone.current.storage.error

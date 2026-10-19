@@ -80,12 +80,12 @@ export default function Sensor({ identity }: { identity: Identity }) {
     },
   })
 
-  function finish(reason: StopReason) {
+  const finish = useCallback((reason: StopReason) => {
     trial.current?.abort(recorder.current?.completion?.endedAtMs ?? performance.now(), reason)
     renderTask()
     recorder.current?.stop(performance.now(), reason)
     source.current?.stop(); streaming.current = false
-  }
+  }, [renderTask])
   function feed() {
     if (streaming.current || !source.current) return
     source.current.start((sample) => {
@@ -222,6 +222,7 @@ export default function Sensor({ identity }: { identity: Identity }) {
 
   // Read committed storage state without restarting the sensor lifecycle on each save.
   const readStatus = useEffectEvent(snapshot)
+  const { flush } = storage
   useEffect(() => {
     const generationRef = generation
     const timer = window.setInterval(() => {
@@ -235,7 +236,7 @@ export default function Sensor({ identity }: { identity: Identity }) {
     }, estimationConfig.updateIntervalMs)
     const hidden = () => {
       if (!document.hidden) return
-      finish('page-hidden'); enabled.current = false; void storage.flush()
+      finish('page-hidden'); enabled.current = false; void flush()
       send(readStatus())
     }
     const unload = (event: BeforeUnloadEvent) => { if (recorder.current) event.preventDefault() }
@@ -246,7 +247,7 @@ export default function Sensor({ identity }: { identity: Identity }) {
       clearInterval(timer); document.removeEventListener('visibilitychange', hidden)
       window.removeEventListener('beforeunload', unload)
     }
-  }, [send, advanceTask])
+  }, [send, advanceTask, finish, flush])
 
   function practiceAvailable() {
     const all = new Map([...(continuation.current?.tasks ?? []).filter((t) => t.purpose !== 'practice' || t.phase === 'complete').map((t) => [t.id, t] as const), ...taskHistory.current])

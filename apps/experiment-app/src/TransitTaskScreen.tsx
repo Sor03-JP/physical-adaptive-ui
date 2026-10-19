@@ -27,12 +27,13 @@ export default function TransitTaskScreen({ run, onPresent, onAdvance, onSelectT
   const validAnswer = unknown || arrivalTimeSchema.safeParse(arrival).success
   const appliedState = informationVisible ? run.uiDecision.state : 'stationary'
   const profile = run.uiConfig.profiles[appliedState]
+  const decisionKey = JSON.stringify(run.uiDecision)
   useLayoutEffect(() => {
     const row = firstRow.current
     onPresent({ rowHeightPx: row?.getBoundingClientRect().height ?? null,
       fontSizePx: row ? Number.parseFloat(getComputedStyle(row).fontSize) : null,
-      viewportHeightPx: window.innerHeight }, { phase: run.phase, decisionKey: JSON.stringify(run.uiDecision), selectedTrainIndex: run.selectedTrainIndex })
-  }, [run.id, run.phase, run.selectedTrainIndex, run.uiDecision.decidedAtMs, run.uiDecision.state, run.uiDecision.reason, run.uiDecision.stale, onPresent])
+      viewportHeightPx: window.innerHeight }, { phase: run.phase, decisionKey, selectedTrainIndex: run.selectedTrainIndex })
+  }, [run.id, run.phase, run.selectedTrainIndex, decisionKey, onPresent])
   const deadline = run.phase === 'viewing' && run.startedAtMs !== null ? run.startedAtMs + run.timing.displayMs
     : run.phase === 'answering' && run.answerShownAtMs !== null ? run.answerShownAtMs + run.timing.answerMs : null
   useEffect(() => {
