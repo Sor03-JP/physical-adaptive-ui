@@ -6,12 +6,12 @@ import type { SurveyRun } from './questionnaire'
 import { readSetting, getOrCreateSetting } from './checkpoint'
 import { downloadText } from './download'
 
-export default function ParticipantManager({ participant, selected, onSelect, locked, management, tasks, retryTasks, surveys, pending, retryDisabled, onFailure, onRetry, jsonExported, csvExported, verified, variant }: {
+export default function ParticipantManager({ participant, selected, onSelect, locked, management, tasks, retryTasks, surveys, pending, retryDisabled, onFailure, onRetry, csvExported, verified, variant }: {
   variant: 'setup' | 'details'
   participant: Participant | null; selected: Participant | null; onSelect: (p: Participant | null) => void
   locked: boolean; management: Management; tasks: TaskRun[]; retryTasks: TaskRun[]; surveys: SurveyRun[]; pending: boolean; retryDisabled: boolean
   onFailure: (failure: Omit<Failure, 'recordedAtControllerMs'>) => void; onRetry: (originalRunId: string) => void
-  jsonExported: boolean; csvExported: boolean; verified: boolean
+  csvExported: boolean; verified: boolean
 }) {
   const [roster, setRoster] = useState<Roster | null>(null)
   const [error, setError] = useState('')
@@ -66,7 +66,7 @@ export default function ParticipantManager({ participant, selected, onSelect, lo
           、アンケート {surveys.some((s) => s.target === block.mode && s.phase === 'submitted') ? '回答済み' : '未完了'}</li>)}
         <li>最後の比較：{surveys.some((s) => s.target === 'final' && s.phase === 'submitted') ? '回答済み' : '未完了'}</li>
       </ol></>}
-    <p>保存の進み具合：全記録のダウンロード操作 {jsonExported ? '済' : '未'} ／ アンケート表のダウンロード操作 {csvExported ? '済' : '未'} ／ 保存ファイルの一致 {verified ? '確認済み' : '未確認'}</p>
+    <p>保存の進み具合：アンケート表のダウンロード操作 {csvExported ? '済' : '未'} ／ 保存ファイルの一致 {verified ? '確認済み' : '未確認'}</p>
     <details data-retry-panel><summary>技術的不成立・再実施（元の記録を保持）</summary>
       <p>誤判定・unknown・誤答・観察漏れは再実施の理由にしません。技術的不成立のみ、原因解消と本人の同意後に元課題につき1回までです。</p>
       <label>元の課題 <select value={originalId} onChange={(event) => { setOriginalId(event.currentTarget.value); setConsent(false); setReason('') }}>

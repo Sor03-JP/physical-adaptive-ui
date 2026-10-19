@@ -57,7 +57,7 @@ export default function Controller({ identity }: { identity: Identity }) {
   const continuationLoaded = useRef(false)
   const [continuing, setContinuing] = useState(false)
   const [selectedParticipant, setSelectedParticipant] = useState<Participant | null>(null)
-  const [exports, setExports] = useState({ json: false, csv: false })
+  const [csvExported, setCsvExported] = useState(false)
   function controllerNow() { return performance.now() + performance.timeOrigin - (collector.current?.controllerTimeOriginMs ?? performance.timeOrigin) }
   const storage = useCheckpoint('controller', identity.room, {
     snapshot: (sampleStart, estimateStart) => collector.current?.checkpoint(sampleStart, estimateStart) ?? null,
@@ -130,7 +130,7 @@ export default function Controller({ identity }: { identity: Identity }) {
         clearing.current = true
         void storage.archive().then(() => {
           collector.current = null; command.current = null; verified.current = false
-          setSelectedParticipant(continuationIntent.current?.context.participant ?? null); setExports({ json: false, csv: false });
+          setSelectedParticipant(continuationIntent.current?.context.participant ?? null); setCsvExported(false);
           setMessage(continuationIntent.current ? '元の記録を端末内に保管しました。センサーの準備を確認し、同じ参加者の続きの記録を開始してください。' : ''); refresh()
         }).catch(() => {
           command.current = null; setError('保存済み記録の整理に失敗しました。現在の記録は保持しています。'); refresh()
@@ -181,7 +181,7 @@ export default function Controller({ identity }: { identity: Identity }) {
     if (!continuationLoaded.current || !selectedParticipant || !storage.ready || storage.error || !phone.current?.storage.ready || phone.current.storage.error
       || collector.current || command.current || !connected || !presence.sensor || !phone.current?.ready) return
     verified.current = false; setError(''); setMessage('')
-    setExports({ json: false, csv: false })
+    setCsvExported(false)
     const intent = continuationIntent.current
     if (intent && JSON.stringify(intent.context.participant) !== JSON.stringify(selectedParticipant)) { setError('続行する参加者が一致しません。'); return }
     command.current = { type: 'start', sessionId: intent?.sessionId ?? crypto.randomUUID(), participant: selectedParticipant,
@@ -223,7 +223,7 @@ export default function Controller({ identity }: { identity: Identity }) {
     if (!current || managementSaving.current || reading || command.current || !storage.ready || storage.error) return
     try {
       current.confirmMovement(input, controllerNow())
-      verified.current = false; setExports((previous) => ({ ...previous, json: false }))
+      verified.current = false
       managementSaving.current = true; refresh()
       if (!await storage.flush()) throw new Error('動作確認を端末内に保存できませんでした。記録を保持しています。')
       setError('')
@@ -322,7 +322,7 @@ export default function Controller({ identity }: { identity: Identity }) {
       current && historySession.current !== current.metadata.sessionId && 'iPhoneから課題履歴を回収しています。',
       (!!command.current || managementSaving.current) && 'iPhoneの操作応答・保存の完了を待っています。',
       reading && 'JSONファイルの読込み・出力を待っています。',
-      (!storage.ready || storage.error || phone.current?.storage.error) && '端末内保存の状態を確認してください。',
+      (!storage.ready || !!storage.error || !!phone.current?.storage.error) && '端末内保存の状態を確認してください。',
       !forContinuation && current && !current.recovery && current.surveyRuns.some((r) => r.phase === 'answering') && 'アンケートが回答途中です。iPhoneで送信してから進んでください。',
     ].filter((reason): reason is string => typeof reason === 'string')
   }
@@ -358,7 +358,6 @@ export default function Controller({ identity }: { identity: Identity }) {
       const data = collector.current.export()
       setReading(true)
       downloadText(writeExperimentFile(await loadExperimentRecords(data, storage.journal)), `${data.management.participant?.participantId ?? 'unassigned'}_${data.metadata.sessionId}${data.complete && !data.recovery ? '' : '-partial'}.json`, 'application/json')
-      setExports((s) => ({ ...s, json: true }))
       setError(''); setMessage(data.complete ? '全記録のダウンロードを開始しました。次に「保存したファイルを確認する」で、今ダウンロードしたファイルを選んでください。'
         : '途中データを出力しました。停止確認・全件受信が完了したファイルではありません。')
     } catch { setError('続行元を含む全記録を出力できませんでした。記録は保持しています。') }
@@ -373,7 +372,7 @@ export default function Controller({ identity }: { identity: Identity }) {
       const records = await outputRecords()
       const allSurveys = records.flatMap((record) => 'questionnaires' in record ? record.questionnaires : [])
       downloadText(writeQuestionnaireCsv(allSurveys, current.management.participant), `${current.management.participant?.participantId ?? 'unassigned'}_${current.metadata.sessionId}_questionnaires.csv`, 'text/csv;charset=utf-8')
-      setExports((s) => ({ ...s, csv: true }))
+      setCsvExported(true)
       setError(''); setMessage('アンケートCSVの出力を開始しました。1設問1行で、回答途中も含みます。センサーを含む全記録はJSONで保存してください。')
     } catch { setError('アンケートCSVを出力できませんでした。記録は保持しています。') }
     finally { setReading(false) }
@@ -408,9 +407,8 @@ export default function Controller({ identity }: { identity: Identity }) {
   const canClear = clearReasons.length === 0
   const nextParticipantBlockers = [
     ...clearReasons,
-    !exports.json && '手順1の「全記録をダウンロード」を押してください。',
-    exports.json && !verified.current && '手順2で、今ダウンロードした「.json」ファイルを選んでください。',
-    surveys.length > 0 && !exports.csv && '手順1の「アンケート表をダウンロード」も押してください。',
+    !verified.current && '手順2で、今ダウンロードした「.json」ファイルを選んでください。',
+    surveys.length > 0 && !csvExported && '手順1の「アンケート表をダウンロード」も押してください。',
   ].filter((reason): reason is string => typeof reason === 'string')
   const showSurvey = active && !recovery && step?.kind === 'survey'
   const waitingForPhone = recording && status?.metadata?.sessionId !== collector.current?.metadata.sessionId
@@ -420,7 +418,7 @@ export default function Controller({ identity }: { identity: Identity }) {
   const progressManager = (<ParticipantManager variant={collector.current ? 'details' : 'setup'} participant={participant} selected={selectedParticipant} onSelect={setSelectedParticipant}
       locked={!!collector.current || !!panel.pending || !!continuationIntent.current} management={management} tasks={progressTasks} retryTasks={taskRuns} surveys={surveys}
       pending={managementBlocked()} retryDisabled={retryBlocked()} onFailure={markFailure} onRetry={retryTask}
-      jsonExported={exports.json} csvExported={exports.csv} verified={verified.current} />
+      csvExported={csvExported} verified={verified.current} />
   )
   return <>
     <div className="controller-status" aria-label="接続と記録の状態">
@@ -470,16 +468,15 @@ export default function Controller({ identity }: { identity: Identity }) {
                 <h3>1. 実験データをPCに保存する</h3>
                 <p>下のボタンでファイルをダウンロードします。全記録には、センサー・観察・指示・課題・アンケートのすべてが含まれます。</p>
                 <div className="controls">
-                  <button className={!exports.json ? 'primary' : undefined} disabled={reading} onClick={download}>{exports.json ? '全記録をもう一度ダウンロード（.json）' : '全記録をダウンロード（.json）'}</button>
-                  {surveys.length > 0 && <button className={exports.json && !exports.csv ? 'primary' : undefined} disabled={!exports.json || reading} onClick={downloadQuestionnaires}>アンケート表をダウンロード（.csv）</button>}
+                  <button className="primary" disabled={reading} onClick={download}>全記録をダウンロード（.json）</button>
+                  {surveys.length > 0 && <button className={!csvExported ? 'primary' : undefined} disabled={reading} onClick={downloadQuestionnaires}>アンケート表をダウンロード（.csv）</button>}
                 </div>
-                <p><small>全記録のダウンロード：{exports.json ? 'ボタン操作済み' : '未操作'}{surveys.length > 0 && ` ／ アンケート表：${exports.csv ? 'ボタン操作済み' : '未操作'}`}。実際に保存できたかは次の手順で確認します。</small></p>
-                {exports.json ? <SavedRecording key={collector.current?.metadata.sessionId} active={active}
+                <p><small>全記録の保存：{verified.current ? 'ファイル一致確認済み' : 'ファイル未確認'}{surveys.length > 0 && ` ／ アンケート表：${csvExported ? 'ボタン操作済み' : '未操作'}`}。実際に保存できたかは次の手順で確認します。</small></p>
+                <SavedRecording key={collector.current?.metadata.sessionId} active={active}
                   reading={reading} setReading={setReading} getRecords={outputRecords} onVerified={(saved) => {
                     if (!collector.current?.matchesSnapshot(saved)) throw new Error('照合中に記録が更新されました。全記録をもう一度ダウンロードして、保存ファイルを確認してください。')
                     verified.current = true; refresh()
                   }} />
-                  : <><h3>2. 保存したファイルを確認する</h3><p>全記録をダウンロードすると、ここで保存確認ができます。</p></>}
                 {verified.current && <p className="success">保存確認が完了しました。ファイルを別の保存先にもコピーしておいてください。</p>}
                 <h3>3. 次の参加者を準備する</h3>
                 <p>iPhoneとPCを次の参加者用に切り替えます。保存済みのファイルと端末内の過去記録は残ります。</p>
@@ -487,7 +484,7 @@ export default function Controller({ identity }: { identity: Identity }) {
                   <p>次の参加者へ進むために必要な操作：</p>
                   <ul className="save-checklist">{nextParticipantBlockers.map((reason) => <li key={reason}>{reason}</li>)}</ul>
                 </div>}
-                <button className="primary" disabled={!canClear || !exports.json || !verified.current || (surveys.length > 0 && !exports.csv)} onClick={clear}>保存確認を終えて、次の参加者へ</button>
+                <button className="primary" disabled={!canClear || !verified.current || (surveys.length > 0 && !csvExported)} onClick={clear}>保存確認を終えて、次の参加者へ</button>
               </>}
           </>}
         </>}

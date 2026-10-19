@@ -95,7 +95,7 @@ describe('participant allocation and progress', () => {
     const noop = () => {}
     const html = renderToStaticMarkup(<ParticipantManager variant="details" participant={participant()} selected={null}
       onSelect={noop} locked management={current.management} tasks={current.progressTaskRuns} retryTasks={current.taskRuns}
-      surveys={[]} pending={false} retryDisabled={false} onFailure={noop} onRetry={noop} jsonExported={false} csvExported={false} verified={false} />)
+      surveys={[]} pending={false} retryDisabled={false} onFailure={noop} onRetry={noop} csvExported={false} verified={false} />)
     const options = html.match(/<select[^>]*>(.*?)<\/select>/s)![1]!
     expect(options).toContain('value="current"')
     expect(options).not.toContain('value="previous"')
