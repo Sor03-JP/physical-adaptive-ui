@@ -63,11 +63,10 @@ function validateRecording(value: z.infer<typeof currentRecordingBase> | z.infer
     context.addIssue({ code: 'custom', message: '実受信間隔と受信時刻差が一致しません。' })
   }
 }
-const recordingSchema = currentRecordingBase.superRefine(validateRecording)
 const readableRecordingSchema = z.discriminatedUnion('version', [currentRecordingBase, legacyRecordingBase])
   .superRefine(validateRecording)
 
-export type Recording = z.infer<typeof recordingSchema>
+export type Recording = z.infer<typeof currentRecordingBase>
 export type ReadableRecording = z.infer<typeof readableRecordingSchema>
 export type RecordingMetadata = z.infer<typeof metadataSchema>
 export type Completion = z.infer<typeof completionSchema>

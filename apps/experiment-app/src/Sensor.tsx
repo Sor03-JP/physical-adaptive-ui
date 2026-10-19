@@ -84,6 +84,7 @@ export default function Sensor({ identity }: { identity: Identity }) {
   })
 
   useEffect(() => {
+    const generationRef = generation
     const timer = window.setInterval(() => {
       const current = snapshot()
       send(current)
@@ -99,7 +100,7 @@ export default function Sensor({ identity }: { identity: Identity }) {
     document.addEventListener('visibilitychange', hidden)
     window.addEventListener('beforeunload', unload)
     return () => {
-      generation.current++; source.current?.stop(); streaming.current = false
+      generationRef.current++; source.current?.stop(); streaming.current = false
       clearInterval(timer); document.removeEventListener('visibilitychange', hidden)
       window.removeEventListener('beforeunload', unload)
     }
