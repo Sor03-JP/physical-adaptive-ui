@@ -1,9 +1,21 @@
 import { z } from 'zod'
+import { movementConfirmationSchema, pendingMovementConfirmations, validMovementConfirmation } from './movement-confirmation'
+import type { MovementConfirmation, MovementConfirmationInput } from './movement-confirmation'
+import { emptyManagement, managementSchema } from './management'
+import type { Participant, Management, Failure, Retry } from './management'
+import type { LoadedCheckpoint, CheckpointDelta } from './checkpoint'
+import { surveyListSchema, validSurveyLinks } from './questionnaire'
+import type { SurveyRun } from './questionnaire'
+import { ResearchRecorder, researchLogSchema, observationProtocolSchema } from './research-log'
+import { continuationSchema } from './continuation'
+import { currentObservationProtocol } from './observation-plan'
 import { MAX_SAMPLES, metadataSchema, sampleSchema, legacySampleSchema, completionSchema, hasValidSampleTimes, hasConsistentReceivedIntervals, hasCompleteAcceleration } from './recording-schema'
 import type { RecordingMetadata, Completion } from './recording-schema'
 import type { MotionSample, MotionEstimate, EstimationConfig } from '@physical-adaptive/device-motion'
 import { summarizeMotionWindow } from '@physical-adaptive/device-motion'
 import { estimateSchema, estimationConfigSchema, hasValidEstimateTimes } from './estimation'
+import { taskRunSchema, previousBriefingTaskRunSchema, previousTaskRunSchema, previousSelectionTaskRunSchema, previousAdaptiveTaskRunSchema, legacyTaskRunSchema } from './task-schema'
+import type { TaskRun } from './task-schema'
 
 const receiptSchema = z.strictObject({
   startIndex: z.int().nonnegative(), count: z.int().positive(),
@@ -17,16 +29,39 @@ const version2TransferBase = z.strictObject({
   expectedCount: z.int().min(0).max(MAX_SAMPLES), complete: z.boolean(),
   receipts: z.array(receiptSchema).max(MAX_SAMPLES),
 })
-const currentTransferBase = version2TransferBase.extend({
+const version3TransferBase = version2TransferBase.extend({
   version: z.literal(3), inference: z.strictObject({
     config: estimationConfigSchema.nullable(), estimates: z.array(estimateSchema).max(MAX_SAMPLES),
     expectedCount: z.int().min(0).max(MAX_SAMPLES),
   }),
 })
+const version4TransferBase = version3TransferBase.extend({
+  version: z.literal(4), tasks: z.array(legacyTaskRunSchema).max(100),
+})
+const version7TransferBase = version3TransferBase.extend({
+  version: z.literal(7), tasks: z.array(previousBriefingTaskRunSchema).max(100),
+})
+const version8TransferBase = version7TransferBase.extend({
+  version: z.literal(8), research: researchLogSchema,
+})
+const version9TransferBase = version8TransferBase.extend({ version: z.literal(9), questionnaires: surveyListSchema })
+const version10TransferBase = version9TransferBase.extend({ version: z.literal(10), tasks: z.array(taskRunSchema).max(100) })
+const version11TransferBase = version10TransferBase.extend({ version: z.literal(11), management: managementSchema,
+  recovery: z.strictObject({ phoneSavedThroughMs: z.number().finite().nonnegative(), detectedAt: z.string().datetime() }).nullable(),
+})
+const version12TransferBase = version11TransferBase.extend({ version: z.literal(12), observationProtocol: observationProtocolSchema.nullable(), continuation: continuationSchema.optional() })
+const version13TransferBase = version12TransferBase.extend({ version: z.literal(13), movementConfirmations: z.array(movementConfirmationSchema).max(1000) })
+const currentTransferBase = version13TransferBase.extend({ version: z.literal(14) })
+const version6TransferBase = version7TransferBase.extend({
+  version: z.literal(6), tasks: z.array(previousAdaptiveTaskRunSchema).max(100),
+})
+const readableVersion5Base = version7TransferBase.extend({
+  version: z.literal(5), tasks: z.array(z.union([previousSelectionTaskRunSchema, previousTaskRunSchema])).max(100),
+})
 const legacyTransferBase = version2TransferBase.extend({
   version: z.literal(1), samples: z.array(legacySampleSchema).max(MAX_SAMPLES),
 })
-function validateTransfer(value: z.infer<typeof currentTransferBase> | z.infer<typeof version2TransferBase> | z.infer<typeof legacyTransferBase>, context: z.RefinementCtx) {
+function validateTransfer(value: z.infer<typeof currentTransferBase> | z.infer<typeof version13TransferBase> | z.infer<typeof version12TransferBase> | z.infer<typeof version11TransferBase> | z.infer<typeof version10TransferBase> | z.infer<typeof version9TransferBase> | z.infer<typeof version8TransferBase> | z.infer<typeof version7TransferBase> | z.infer<typeof version6TransferBase> | z.infer<typeof readableVersion5Base> | z.infer<typeof version4TransferBase> | z.infer<typeof version3TransferBase> | z.infer<typeof version2TransferBase> | z.infer<typeof legacyTransferBase>, context: z.RefinementCtx) {
   if (!hasValidSampleTimes(value.samples, value.metadata.startedAtMs, value.completion?.endedAtMs)) {
     context.addIssue({ code: 'custom', message: 'iPhone側の時刻が不整合です。' })
   }
@@ -38,7 +73,8 @@ function validateTransfer(value: z.infer<typeof currentTransferBase> | z.infer<t
     }
     count += receipt.count; receivedAt = receipt.controllerReceivedAtMs
   }
-  const inferenceComplete = value.version !== 3 || value.inference.estimates.length === value.inference.expectedCount
+  const inference = 'inference' in value ? value.inference : null
+  const inferenceComplete = inference === null || inference.estimates.length === inference.expectedCount
   if (count !== value.samples.length || value.samples.length > value.expectedCount
     || value.complete !== (value.completion !== null && value.samples.length === value.expectedCount && inferenceComplete)) {
     context.addIssue({ code: 'custom', message: '件数または転送完了状態が不整合です。' })
@@ -46,17 +82,53 @@ function validateTransfer(value: z.infer<typeof currentTransferBase> | z.infer<t
   if (value.version !== 1 && !hasConsistentReceivedIntervals(value.samples)) {
     context.addIssue({ code: 'custom', message: '実受信間隔と受信時刻差が一致しません。' })
   }
-  if (value.version === 3 && (value.inference.estimates.length > value.inference.expectedCount
-    || (value.inference.config === null && value.inference.expectedCount !== 0)
-    || !hasValidEstimateTimes(value.inference.estimates, value.metadata.startedAtMs, value.completion?.endedAtMs))) {
+  if (inference && (inference.estimates.length > inference.expectedCount
+    || (inference.config === null && inference.expectedCount !== 0)
+    || !hasValidEstimateTimes(inference.estimates, value.metadata.startedAtMs, value.completion?.endedAtMs))) {
     context.addIssue({ code: 'custom', message: '推定ログの件数・設定・時刻が不整合です。' })
+  }
+  if ('movementConfirmations' in value && value.movementConfirmations.some((entry, index) => !validMovementConfirmation(entry, value.tasks)
+    || entry.confirmedAtControllerMs < (value.movementConfirmations[index - 1]?.confirmedAtControllerMs ?? 0)))
+    context.addIssue({ code: 'custom', message: '課題終了後の動作確認と課題・確認時刻が不整合です。' })
+  const continuation = 'continuation' in value ? value.continuation : undefined
+  const allTasks = 'tasks' in value ? [...(continuation?.tasks ?? []), ...value.tasks] : []
+  const allSurveys = 'questionnaires' in value ? [...(continuation?.questionnaires ?? []), ...value.questionnaires] : []
+  if (continuation && (continuation.previousSessionIds.includes(value.metadata.sessionId)
+    || JSON.stringify(continuation.participant) !== JSON.stringify('management' in value ? value.management.participant : null)))
+    context.addIssue({ code: 'custom', message: '続行元と参加者が一致しません。' })
+  if ('management' in value && (value.management.failures.some((f) => !allTasks.some((t) => t.id === f.originalRunId && 'purpose' in t && t.purpose === 'main'))
+    || value.management.retries.some((r) => {
+      const original = allTasks.find((t) => t.id === r.originalRunId)
+      const retry = allTasks.find((t) => t.id === r.retryRunId)
+      return !original || (retry && (retry.taskId !== original.taskId || retry.mode !== original.mode || !('purpose' in retry) || retry.purpose !== 'main'))
+    }))) context.addIssue({ code: 'custom', message: '再実施と元課題の対応が不整合です。' })
+  if ('questionnaires' in value && value.questionnaires.some((run) => run.sessionId !== value.metadata.sessionId
+    || run.requestedAtMs < value.metadata.startedAtMs || !validSurveyLinks(run, allSurveys, allTasks, continuation?.previousSessionIds))) {
+    context.addIssue({ code: 'custom', message: 'アンケートと課題・計測記録の対応が不整合です。' })
+  }
+  if ('research' in value && value.research.events.some((e) => e.taskRunId !== null && !value.tasks.some((t) => t.id === e.taskRunId))) {
+    context.addIssue({ code: 'custom', message: '観察ログの課題IDが記録と一致しません。' })
+  }
+  if (('tasks' in value) && (new Set(value.tasks.map((task) => task.id)).size !== value.tasks.length
+    || value.tasks.some((task) => task.sessionId !== value.metadata.sessionId || task.requestedAtMs < value.metadata.startedAtMs))) {
+    context.addIssue({ code: 'custom', message: '課題の計測IDが一致しません。' })
   }
 }
 const transferSchema = currentTransferBase.superRefine(validateTransfer)
-const readableTransferSchema = z.discriminatedUnion('version', [currentTransferBase, version2TransferBase, legacyTransferBase])
+const readableTransferSchema = z.discriminatedUnion('version', [currentTransferBase, version13TransferBase, version12TransferBase, version11TransferBase, version10TransferBase, version9TransferBase, version8TransferBase, version7TransferBase, version6TransferBase, readableVersion5Base, version4TransferBase, version3TransferBase, version2TransferBase, legacyTransferBase])
   .superRefine(validateTransfer)
 export type Transfer = z.infer<typeof transferSchema>
 export type ReadableTransfer = z.infer<typeof readableTransferSchema>
+
+export function checkpointTransfer(saved: LoadedCheckpoint): Transfer {
+  const header = saved.header as Transfer
+  const data = parseTransfer({ ...header, samples: saved.samples, inference: { ...header.inference, estimates: saved.estimates } })
+  if (data.version === 11) return { ...data, version: 14, observationProtocol: null, movementConfirmations: [] }
+  if (data.version === 12) return { ...data, version: 14, movementConfirmations: [] }
+  if (data.version === 13) return { ...data, version: 14 }
+  if (data.version !== 14) throw new Error('保存データの復旧形式が一致しません。')
+  return data
+}
 
 export class TransferCollector {
   private readonly samples: MotionSample[] = []
@@ -67,13 +139,107 @@ export class TransferCollector {
   private readonly estimates: MotionEstimate[] = []
   private expectedEstimateCount = 0
   private readonly estimationConfig: EstimationConfig | null
+  private readonly tasks = new Map<string, TaskRun>()
+
+  private questionnaires: SurveyRun[] = []
+
+  management: Management = emptyManagement()
+  recovery: Transfer['recovery'] = null
+  continuation: Transfer['continuation']
+  observationProtocol: Transfer['observationProtocol'] = structuredClone(currentObservationProtocol)
+
+  private movementConfirmations: MovementConfirmation[] = []
+  get movementConfirmationHistory(): MovementConfirmation[] { return structuredClone(this.movementConfirmations) }
+  get unconfirmedTaskRuns(): TaskRun[] { return pendingMovementConfirmations(this.taskRuns, this.movementConfirmations) }
+  confirmMovement(input: MovementConfirmationInput, confirmedAtControllerMs: number) {
+    const entry = movementConfirmationSchema.parse({ ...input, confirmedAtControllerMs })
+    if (!validMovementConfirmation(entry, this.taskRuns)) throw new Error('回答が終了した本番課題を選んでください。')
+    if (entry.confirmedAtControllerMs < (this.movementConfirmations.at(-1)?.confirmedAtControllerMs ?? 0)) throw new Error('確認時刻が逆行しています。')
+    if (this.movementConfirmations.length >= 1000) throw new Error('動作確認の記録上限に達しました。')
+    this.movementConfirmations.push(structuredClone(entry))
+  }
+
+  readonly research: ResearchRecorder
 
   constructor(readonly metadata: RecordingMetadata, readonly controllerTimeOriginMs: number, config: EstimationConfig | null = null) {
+    this.research = new ResearchRecorder()
     this.estimationConfig = config ? estimationConfigSchema.parse(config) : null
   }
 
+  static restore(saved: LoadedCheckpoint, currentTimeOriginMs: number, now: number): TransferCollector {
+    const data = checkpointTransfer(saved)
+    const collector = new TransferCollector(data.metadata, data.controllerTimeOriginMs, data.inference.config)
+    collector.samples.push(...data.samples); collector.estimates.push(...data.inference.estimates)
+    collector.receipts.push(...data.receipts); collector.expectedCount = data.expectedCount
+    collector.expectedEstimateCount = data.inference.expectedCount; collector.completion = data.completion
+    collector.completeAccelerationCount = data.samples.filter(hasCompleteAcceleration).length
+    data.tasks.forEach((t) => collector.tasks.set(t.id, t)); collector.questionnaires = data.questionnaires
+    collector.movementConfirmations = structuredClone(data.movementConfirmations)
+    collector.management = data.management; collector.recovery = data.recovery; collector.observationProtocol = data.observationProtocol; collector.continuation = data.continuation
+    const resumedAtMs = now + currentTimeOriginMs - data.controllerTimeOriginMs
+    collector.research.restore(data.research)
+    collector.management.controllerRestarts.push({ timeOriginMs: currentTimeOriginMs, controllerAtMs: resumedAtMs })
+    return collector
+  }
+  setParticipant(participant: Participant | null) {
+    if (this.management.participant && JSON.stringify(this.management.participant) !== JSON.stringify(participant)) throw new Error('参加者情報が記録と一致しません。')
+    this.management.participant = participant
+  }
+  markFailure(failure: Failure) {
+    if (!this.tasks.has(failure.originalRunId) || this.tasks.get(failure.originalRunId)!.purpose !== 'main') throw new Error('本番の元課題が見つかりません。')
+    const existing = this.management.failures.find((f) => f.originalRunId === failure.originalRunId)
+    if (existing) throw new Error('この課題の不成立理由は記録済みです。')
+    this.management = managementSchema.parse({ ...this.management, failures: [...this.management.failures, failure] })
+  }
+  requestRetry(retry: Retry) {
+    const original = this.tasks.get(retry.originalRunId)
+    if (!original || !['complete', 'aborted'].includes(original.phase)) throw new Error('元課題を終了・中断してから再実施してください。')
+    this.management = managementSchema.parse({ ...this.management, retries: [...this.management.retries, retry] })
+  }
+  checkpoint(sampleStart: number, estimateStart: number): CheckpointDelta {
+    return { sessionId: this.metadata.sessionId, header: this.snapshot(false), sampleStart, estimateStart,
+      samples: this.samples.slice(sampleStart), estimates: this.estimates.slice(estimateStart) }
+  }
   get count(): number { return this.samples.length }
   get estimateCount(): number { return this.estimates.length }
+  get progressTaskRuns(): TaskRun[] { return [...structuredClone((this.continuation?.tasks ?? []).filter((t) => t.purpose !== 'practice' || t.phase === 'complete')), ...this.taskRuns] }
+  get progressSurveyRuns(): SurveyRun[] { return [...structuredClone(this.continuation?.questionnaires ?? []), ...this.surveyRuns] }
+  get taskRuns(): TaskRun[] { return structuredClone([...this.tasks.values()]) }
+  get surveyRuns(): SurveyRun[] { return structuredClone(this.questionnaires) }
+  updateQuestionnaires(runs: SurveyRun[]): boolean {
+    const parsed = surveyListSchema.parse(runs)
+    const tasks = [...(this.continuation?.tasks ?? []), ...this.tasks.values()]
+    if (parsed.some((run) => run.sessionId !== this.metadata.sessionId || !validSurveyLinks(run, [...(this.continuation?.questionnaires ?? []), ...parsed], tasks, this.continuation?.previousSessionIds))) return false
+    // Ignore stale snapshots; submitted answers are immutable.
+    if (this.questionnaires.some((old) => {
+      const next = parsed.find((r) => r.id === old.id)
+      return !next || next.updatedAtMs < old.updatedAtMs || (old.phase === 'submitted' && JSON.stringify(next) !== JSON.stringify(old))
+    })) return false
+    if (JSON.stringify(parsed) === JSON.stringify(this.questionnaires)) return false
+    this.questionnaires = structuredClone(parsed)
+    return true
+  }
+  get taskCount(): number { return this.tasks.size }
+  updateTask(task: TaskRun | null): boolean {
+    if (task === null || task.sessionId !== this.metadata.sessionId) return false
+    const previous = this.tasks.get(task.id)
+    if (previous) {
+      if (JSON.stringify(previous) === JSON.stringify(task)) return false
+      if (['complete', 'aborted'].includes(previous.phase) && (task.phase !== previous.phase
+        || task.answer !== previous.answer || task.outcome !== previous.outcome || task.endedAtMs !== previous.endedAtMs
+        || task.abortReason !== previous.abortReason)) return false
+      // A phone checkpoint may be older than the last snapshot already received by PC.
+      const phases = ['briefing', 'preparing', 'viewing', 'waiting-stop', 'answering', 'complete', 'aborted']
+      if (phases.indexOf(task.phase) < phases.indexOf(previous.phase) || task.events.length < previous.events.length
+        || task.uiLog.length < previous.uiLog.length
+        || JSON.stringify(task.events.slice(0, previous.events.length)) !== JSON.stringify(previous.events)
+        || JSON.stringify(task.uiLog.slice(0, previous.uiLog.length)) !== JSON.stringify(previous.uiLog)
+        || (task.events.at(-1)?.atMs ?? task.requestedAtMs) < (previous.events.at(-1)?.atMs ?? previous.requestedAtMs)) return false
+    }
+    if (!this.tasks.has(task.id) && this.tasks.size >= 100) throw new Error('課題記録の上限に達しました。')
+    this.tasks.set(task.id, structuredClone(task))
+    return true
+  }
   get complete(): boolean {
     return this.completion !== null && this.count === this.expectedCount && this.estimateCount === this.expectedEstimateCount
   }
@@ -81,7 +247,8 @@ export class TransferCollector {
   updateStatus(count: number, completion: Completion | null, estimateCount = 0): void {
     this.expectedCount = Math.max(this.expectedCount, count)
     this.expectedEstimateCount = Math.max(this.expectedEstimateCount, estimateCount)
-    if (completion !== null) this.completion = completion
+    if (completion !== null) this.completion = completion.stopReason === 'recovered-after-reload'
+      ? { ...completion, endedAtMs: Math.max(completion.endedAtMs, this.samples.at(-1)?.receivedAtMs ?? 0, this.estimates.at(-1)?.stabilizedAtMs ?? 0) } : completion
   }
 
   receiveEstimates(startIndex: number, estimates: MotionEstimate[]): boolean {
@@ -113,16 +280,21 @@ export class TransferCollector {
     return latest ? summarizeMotionWindow(this.samples, latest.receivedAtMs, windowMs) : null
   }
 
-  export(): Transfer {
-    return transferSchema.parse({
-      format: 'physical-adaptive-motion-transfer', version: 3,
-      metadata: this.metadata, completion: this.completion, samples: this.samples.slice(),
+  private snapshot(includeSamples: boolean): Transfer {
+    return {
+      ...(this.continuation ? { continuation: structuredClone(this.continuation) } : {}),
+      format: 'physical-adaptive-motion-transfer', version: 14, movementConfirmations: this.movementConfirmationHistory, observationProtocol: structuredClone(this.observationProtocol), management: structuredClone(this.management), recovery: this.recovery,
+      metadata: this.metadata, completion: this.completion, samples: includeSamples ? this.samples.slice() : [],
       controllerTimeOriginMs: this.controllerTimeOriginMs, expectedCount: this.expectedCount,
       complete: this.complete, receipts: this.receipts.slice(),
-      inference: { config: this.estimationConfig, estimates: this.estimates.slice(), expectedCount: this.expectedEstimateCount },
-    })
+      inference: { config: this.estimationConfig, estimates: includeSamples ? this.estimates.slice() : [], expectedCount: this.expectedEstimateCount },
+      questionnaires: this.surveyRuns, tasks: [...this.tasks.values()], research: this.research.snapshot(),
+    }
   }
+  export(): Transfer { return transferSchema.parse(this.snapshot(true)) }
+  matchesSnapshot(saved: ReadableTransfer): boolean { return JSON.stringify(this.export()) === JSON.stringify(saved) }
 }
 
-export function readTransfer(text: string): ReadableTransfer { return readableTransferSchema.parse(JSON.parse(text)) }
-export function writeTransfer(value: ReadableTransfer): string { return JSON.stringify(readableTransferSchema.parse(value)) }
+export function parseTransfer(value: unknown): ReadableTransfer { return readableTransferSchema.parse(value) }
+export function readTransfer(text: string): ReadableTransfer { return parseTransfer(JSON.parse(text)) }
+export function writeTransfer(value: ReadableTransfer): string { return JSON.stringify(parseTransfer(value)) }

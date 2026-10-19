@@ -26,7 +26,7 @@ it('isolates rooms and only allows controller commands to reach the paired senso
   h.emit('measurement:join', { room: 'b', role: 'sensor' }, other.value)
   pc.send.mockClear(); phone.send.mockClear(); other.send.mockClear()
   h.emit('measurement:message', { type: 'start', sessionId: 'one' }, pc.value)
-  expect(phone.send).toHaveBeenCalledWith('measurement:message', { type: 'start', sessionId: 'one' })
+  expect(phone.send).toHaveBeenCalledWith('measurement:message', { type: 'start', sessionId: 'one', participant: null })
   expect(other.send).not.toHaveBeenCalled()
   h.emit('measurement:message', { type: 'start', sessionId: 'wrong-role' }, phone.value)
   expect(pc.send).not.toHaveBeenCalled()
