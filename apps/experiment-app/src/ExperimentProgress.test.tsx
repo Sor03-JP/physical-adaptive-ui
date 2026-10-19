@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
-import { experimentProgress } from './ExperimentProgress'
+import { experimentProgress } from './experiment-progress'
 import TaskController from './TaskController'
 import QuestionnaireController from './QuestionnaireController'
 import { TransitTrial } from './tasks'
