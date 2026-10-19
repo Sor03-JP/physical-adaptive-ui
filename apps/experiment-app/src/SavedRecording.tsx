@@ -14,7 +14,7 @@ export default function SavedRecording({ active, reading, setReading, onVerified
   setReading: (reading: boolean) => void
   onVerified: (record: ReadableTransfer) => void
 }) {
-  const [imported, setImported] = useState<{ id: string; version: number; count: number; estimates: number; tasks: number; practiceTasks: number; researchEvents: number; clockRounds: number; surveys: number; submittedSurveys: number; complete: string; first: ReadableMotionSample | null; last: ReadableMotionSample | null } | null>(null)
+  const [imported, setImported] = useState<{ id: string; version: number; count: number; estimates: number; tasks: number; practiceTasks: number; researchEvents: number; surveys: number; submittedSurveys: number; complete: string; first: ReadableMotionSample | null; last: ReadableMotionSample | null } | null>(null)
   const [importedSurveys, setImportedSurveys] = useState<SurveyRun[]>([])
   const [importedParticipant, setImportedParticipant] = useState<Participant | null>(null)
   const [message, setMessage] = useState('')
@@ -33,14 +33,13 @@ export default function SavedRecording({ active, reading, setReading, onVerified
           tasks: records.reduce((n, r) => n + ('tasks' in r ? r.tasks.length : 0), 0),
           practiceTasks: records.reduce((n, r) => n + ('tasks' in r ? r.tasks.filter((task) => 'purpose' in task && task.purpose === 'practice').length : 0), 0),
           researchEvents: records.reduce((n, r) => n + ('research' in r ? r.research.events.length : 0), 0),
-          clockRounds: records.reduce((n, r) => n + ('research' in r ? r.research.rounds.length : 0), 0),
           surveys: records.reduce((n, r) => n + ('questionnaires' in r ? r.questionnaires.length : 0), 0),
           submittedSurveys: records.reduce((n, r) => n + ('questionnaires' in r ? r.questionnaires.filter((s) => s.phase === 'submitted').length : 0), 0),
           complete: records.length > 1 ? `続行元を含む${records.length}件の計測記録（中断記録も保持）` : 'recovery' in data && data.recovery ? 'iPhone更新による中断・保存範囲を回収' : data.complete ? 'センサー全件受信・停止確認済み' : '途中データ',
           first: records[0]?.samples[0] ?? null, last: data.samples.at(-1) ?? null })
       } else {
         const data = recording
-        setImported({ id: data.sessionId, version: data.version, count: data.samples.length, estimates: 0, tasks: 0, practiceTasks: 0, researchEvents: 0, clockRounds: 0, surveys: 0, submittedSurveys: 0, complete: 'iPhone単体記録',
+        setImported({ id: data.sessionId, version: data.version, count: data.samples.length, estimates: 0, tasks: 0, practiceTasks: 0, researchEvents: 0, surveys: 0, submittedSurveys: 0, complete: 'iPhone単体記録',
           first: data.samples[0] ?? null, last: data.samples.at(-1) ?? null })
       }
       if (same && records) onVerified(records.at(-1)!)
@@ -68,7 +67,7 @@ export default function SavedRecording({ active, reading, setReading, onVerified
       {reading && <p role="status">ファイルの内容を確認しています…</p>}
       {imported && <details><summary>選んだファイルの内容</summary>{importedParticipant && <p>参加者：{importedParticipant.participantId} ／ {importedParticipant.group}</p>}<p>記録ID：{imported.id}<br />{imported.count}件 ／ {imported.complete} ／ 形式v{imported.version}</p>
         <p>推定ログ：{imported.estimates}件</p>
-        <p>課題ログ：本番{imported.tasks - imported.practiceTasks}件・練習{imported.practiceTasks}件 ／ 観察・指示：{imported.researchEvents}件 ／ 時刻合わせ：{imported.clockRounds}回</p>
+        <p>課題ログ：本番{imported.tasks - imported.practiceTasks}件・練習{imported.practiceTasks}件 ／ 観察・指示：{imported.researchEvents}件</p>
         <p>アンケート：回答済み{imported.submittedSurveys}件 ／ 回答途中{imported.surveys - imported.submittedSurveys}件</p>
         {importedSurveys.length > 0 && <button disabled={reading} onClick={downloadImportedQuestionnaires}>読み込んだJSONのアンケートをCSV出力</button>}
         {imported.version === 1 && <p className="notice">旧形式のintervalMsはAPIの生値です。実受信間隔（ms）とは区別してください。</p>}

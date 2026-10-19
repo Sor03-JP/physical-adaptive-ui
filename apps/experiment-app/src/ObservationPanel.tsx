@@ -1,4 +1,3 @@
-import { clockResult, representative } from './research-log'
 import type { ResearchEvent, ResearchLog } from './research-log'
 import type { TaskRun } from './tasks'
 import { observationGuide, movementLabels } from './observation-plan'
@@ -8,18 +7,11 @@ const instructionLabels = { stationary: '停止を指示した', walking: '歩�
 function eventLabel(event: ResearchEvent) {
   return event.kind === 'instruction' ? instructionLabels[event.value as keyof typeof instructionLabels] : labels[event.value]
 }
-export default function ObservationPanel({ log, busy, disabled, hidden, onHidden, onCalibrate, run, elapsedMs }: {
+export default function ObservationPanel({ log, hidden, onHidden, run, elapsedMs }: {
   run: TaskRun | null; elapsedMs: number
-  log: ResearchLog | null; busy: boolean; disabled: boolean; hidden: boolean
+  log: ResearchLog | null; hidden: boolean
   onHidden: (hidden: boolean) => void
-  onCalibrate: () => void
 }) {
-  const rounds = log?.rounds ?? []
-  const last = rounds.at(-1)
-  const best = last ? representative(last) : null
-  const result = best ? clockResult(best) : null
-  const startRound = rounds.find((r) => r.purpose === 'start' && r.endedAtMs !== null && r.exchanges.length)
-  const start = startRound ? representative(startRound) : null
   const events = log?.events ?? []
   const guide = observationGuide(run, elapsedMs)
   const observations = events.filter((event) => event.kind === 'observation').length
@@ -40,22 +32,16 @@ export default function ObservationPanel({ log, busy, disabled, hidden, onHidden
     <details className="observation-history"><summary>記録履歴・出力（観察{observations}件／指示{events.length - observations}件）</summary>
       <p>目視確認は端末内保存の対象です。終了後、PCの「保存」から全記録JSONを出力してください。アンケートCSVには含まれません。</p>
       <p>JSONには目視の入力時刻・動作・課題ID・最後に届いた課題段階を記録します。動作予定の設定は observationProtocol、終了後の確認は movementConfirmations、開始状態・回答前の静止確認は research.events に分けます。口頭指示と変化開始の実時刻は入力しません。</p>
-      <p><small>以下は最近の5件。全件はJSONの research.events、時刻合わせは research.rounds に保存されます。時刻はPC基準であり、動作開始の正解時刻ではありません。</small></p>
+      <p><small>以下は最近の5件。全件はJSONの research.events に保存されます。時刻はPC基準であり、動作開始の正解時刻ではありません。</small></p>
       {events.length ? <ol>{events.slice(-5).map((event, index) => <li key={index}>
         {event.kind === 'instruction' ? '指示' : '観察'}：{eventLabel(event)} ／ {lastTime(event)} ／ {event.reportedPhase ?? '課題外'}
       </li>)}</ol> : <p>まだ記録はありません。</p>}
     </details>
-    <details><summary>記録の説明・時刻合わせ</summary>
+    <details><summary>記録の説明・表示設定</summary>
     <label><input type="checkbox" checked={hidden} onChange={(event) => onHidden(event.currentTarget.checked)} /> 観察用に推定・特徴量・UI状態を隠す</label>
       <p>歩行・走行3歩、静止1秒を基準に足運びを確認します。課題中は監視を優先してください。</p>
       <p>予定と異なる動作は回答終了後の「ずれあり」に残します。過去の時刻を推測で補わず、予定時刻を正確な動作開始時刻とは扱いません。</p>
     <p>観察・指示：{log?.events.length ?? 0}件。入力時刻はPC基準で保存し、真の動作開始時刻には置き換えません。</p>
-    <button disabled={disabled || busy} onClick={onCalibrate}>時刻合わせを再計測（5回）</button>
-    <p>{busy ? '時刻合わせ中。課題を開始せずお待ちください。' : last ? `時刻合わせ終了：成功${last.exchanges.length}／${last.attempts}回、失敗${last.failures}回` : '記録開始後、課題を始める前に自動で時刻合わせします。'}</p>
-    {result && <p>iPhone時刻に加える補正：{result.offsetMs.toFixed(3)}ms ／ 往復時間（端末内処理時間を除く）：{result.roundTripMs.toFixed(3)}ms</p>}
-    {result && start && <p>開始時との差：{(result.offsetMs - clockResult(start).offsetMs).toFixed(3)}ms（通信の揺らぎも含み、時計のずれだけとは断定しません）</p>}
-    {last && !busy && !result && <p className="error">時刻合わせが成立していません。接続を確認して再計測してください。</p>}
-    <p><small>PC・iPhoneのperformance時計を対応付けます。元の時刻と全通信記録を保持します。往復経路の非対称性や観察入力の反応遅れがあり、完全な同期ではありません。終了後の時刻合わせが終わってからJSONを保存してください。</small></p>
     </details>
   </section>
 }

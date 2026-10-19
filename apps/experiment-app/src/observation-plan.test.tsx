@@ -27,11 +27,11 @@ it('shows the planned movements at the 4s, 11s and 15s boundaries', () => {
 })
 
 it('does not infer confirmations from the schedule and keeps conflicting observations visible', () => {
-  const run = trial('A2').snapshot(), log = new ResearchRecorder('session', 0)
+  const run = trial('A2').snapshot(), log = new ResearchRecorder()
   log.record({ kind: 'observation', value: 'stationary', controllerAtMs: 5500, taskRunId: run.id, reportedPhase: 'viewing' })
   const before = log.snapshot(), noop = () => {}
   const html = renderToStaticMarkup(<ObservationPanel log={before} run={run} elapsedMs={5000}
-    busy={false} disabled={false} hidden onHidden={noop} onCalibrate={noop} />)
+    hidden onHidden={noop} />)
   expect(html).toContain('いま案内する動作（予定）')
   expect(html).toContain('movement-current">歩行')
   expect(html).toContain('観察：静止確認')
@@ -40,6 +40,6 @@ it('does not infer confirmations from the schedule and keeps conflicting observa
   expect(html).not.toContain('aria-pressed="true"')
   expect(log.snapshot()).toEqual(before)
   const empty = renderToStaticMarkup(<ObservationPanel log={null} run={run} elapsedMs={12000}
-    busy={false} disabled={false} hidden onHidden={noop} onCalibrate={noop} />)
+    hidden onHidden={noop} />)
   expect(empty).toContain('まだ記録はありません。')
 })

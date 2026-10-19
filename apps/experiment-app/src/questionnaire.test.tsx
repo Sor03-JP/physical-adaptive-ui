@@ -95,7 +95,7 @@ describe('questionnaires tied to task records', () => {
     const book = completedBook()
     expect(collector.updateQuestionnaires(book.snapshot())).toBe(true)
     const data = collector.export()
-    expect(data.version).toBe(13)
+    expect(data.version).toBe(14)
     expect(readTransfer(writeTransfer(data))).toEqual(data)
     expect(data.questionnaires[1]?.answers.q6).toBe('cannot-judge')
     expect(data.questionnaires[2]?.linkedIds).toEqual(['normal', 'automatic'])

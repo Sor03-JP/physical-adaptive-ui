@@ -64,7 +64,6 @@ export default function Controller({ identity }: { identity: Identity }) {
     restore: (saved) => {
       collector.current = TransferCollector.restore(saved, performance.timeOrigin, performance.now())
       setSelectedParticipant(collector.current.management.participant)
-      if (!collector.current.recovery) collector.current.research.begin(collector.current.research.hasStartCalibration ? 'manual' : 'start', controllerNow())
       verified.current = false; refresh()
     },
   })
@@ -89,10 +88,6 @@ export default function Controller({ identity }: { identity: Identity }) {
 
   function refresh() {
     const current = collector.current
-    if (current && phone.current?.metadata?.sessionId === current.metadata.sessionId && phone.current.completion && !current.recovery && !current.research.busy
-      && !current.research.snapshot().rounds.some((r) => r.purpose === 'end')) {
-      current.research.begin('end', controllerNow()); verified.current = false
-    }
     setPanel({ phone: phone.current, received: current?.count ?? 0,
       estimates: current?.estimateCount ?? 0,
       valid: current?.summary().completeAccelerationCount ?? 0,
@@ -101,9 +96,7 @@ export default function Controller({ identity }: { identity: Identity }) {
   function receive(packet: Message, receivedAtMs: number) {
     if (!storage.ready || !continuationLoaded.current) return
     receivedAtMs += performance.timeOrigin - (collector.current?.controllerTimeOriginMs ?? (packet.type === 'status' ? packet.continuation?.controllerTimeOriginMs : undefined) ?? performance.timeOrigin)
-    if (packet.type === 'clock-reply') {
-      if (collector.current?.research.receive(packet, receivedAtMs)) verified.current = false
-    } else if (packet.type === 'status') {
+    if (packet.type === 'status') {
       phone.current = packet
       const metadata = packet.metadata
       if (metadata) {
@@ -113,7 +106,6 @@ export default function Controller({ identity }: { identity: Identity }) {
         if (!collector.current) {
           collector.current = new TransferCollector(metadata, packet.continuation?.controllerTimeOriginMs ?? performance.timeOrigin, packet.estimationConfig)
           if (packet.continuation) { collector.current.continuation = packet.continuation; collector.current.management = structuredClone(packet.continuation.management) }
-          if (!packet.recovered) collector.current.research.begin('start', receivedAtMs)
         }
         collector.current.setParticipant(packet.participant)
         if (packet.recovered) collector.current.recovery ??= { phoneSavedThroughMs: packet.recoverySavedThroughMs!, detectedAt: new Date().toISOString() }
@@ -167,12 +159,7 @@ export default function Controller({ identity }: { identity: Identity }) {
       if (command.current) send(command.current)
       const current = collector.current
       const status = phone.current
-      if (current) {
-        const probe = current.research.poll(controllerNow())
-        if (probe) send(probe)
-        if (current.research.busy || probe) verified.current = false
-        refresh()
-      }
+      if (current) refresh()
       if (current && status?.metadata?.sessionId === current.metadata.sessionId && historySession.current !== current.metadata.sessionId) {
         send({ type: 'pull-tasks', sessionId: current.metadata.sessionId })
       }
@@ -216,24 +203,16 @@ export default function Controller({ identity }: { identity: Identity }) {
       verified.current = false; refresh()
     } catch (cause) { setError(cause instanceof Error ? cause.message : '観察を記録できませんでした。') }
   }
-  function calibrate() {
-    const current = collector.current
-    if (calibrationBlocked() || !current) return
-    current.research.begin(phone.current?.completion ? 'end' : current.research.hasStartCalibration ? 'manual' : 'start', controllerNow())
-    verified.current = false; refresh()
-  }
-  function calibrationBlocked() {
-    return !collector.current || collector.current.research.busy || !!command.current || !connected || !presence.sensor || reading || managementSaving.current || continuing
-  }
   function managementBlocked() {
     const current = collector.current
-    return calibrationBlocked() || !current || !storage.ready || !!storage.error || !!phone.current?.storage.error || !!current.recovery
+    return !current || !!command.current || !connected || !presence.sensor || reading || managementSaving.current || continuing
+      || !storage.ready || !!storage.error || !!phone.current?.storage.error || !!current.recovery
       || historySession.current !== current.metadata.sessionId
   }
   function taskBlocked() {
     const current = collector.current
     return managementBlocked() || !current || !phone.current?.metadata || !!phone.current.completion
-      || !current.research.hasStartCalibration || !storage.savedAt || !phone.current.storage.savedAt
+      || !storage.savedAt || !phone.current.storage.savedAt
       || current.surveyRuns.some((r) => r.phase === 'answering')
   }
   function retryBlocked() {
@@ -319,7 +298,7 @@ export default function Controller({ identity }: { identity: Identity }) {
   }
   function beginTask() {
     const run = phone.current?.taskRun
-    if (!run || run.phase !== 'briefing' || run.briefingShownAtMs === null || command.current || collector.current?.research.busy) return
+    if (!run || run.phase !== 'briefing' || run.briefingShownAtMs === null || command.current) return
     const initial = observationGuide(run, 0)
     if (initial) recordResearch(initial.state)
     command.current = { type: 'task-begin', sessionId: run.sessionId, runId: run.id }
@@ -342,7 +321,6 @@ export default function Controller({ identity }: { identity: Identity }) {
       current && !current.complete && !current.recovery && 'iPhoneの停止確認と全件受信がまだ完了していません。接続を戻してデータを回収してください。',
       current && historySession.current !== current.metadata.sessionId && 'iPhoneから課題履歴を回収しています。',
       (!!command.current || managementSaving.current) && 'iPhoneの操作応答・保存の完了を待っています。',
-      current?.research.busy && '時刻合わせの完了を待っています。',
       reading && 'JSONファイルの読込み・出力を待っています。',
       (!storage.ready || storage.error || phone.current?.storage.error) && '端末内保存の状態を確認してください。',
       !forContinuation && current && !current.recovery && current.surveyRuns.some((r) => r.phase === 'answering') && 'アンケートが回答途中です。iPhoneで送信してから進んでください。',
@@ -375,7 +353,7 @@ export default function Controller({ identity }: { identity: Identity }) {
     return loadExperimentRecords(collector.current.export(), storage.journal)
   }
   async function download() {
-    if (!collector.current || collector.current.research.busy) return
+    if (!collector.current) return
     try {
       const data = collector.current.export()
       setReading(true)
@@ -419,7 +397,6 @@ export default function Controller({ identity }: { identity: Identity }) {
   const planned = step?.kind === 'task' ? step : activeTask ? { taskId: activeTask.taskId as TaskId, mode: activeTask.mode } : null
   const recording = collector.current !== null
   const recovery = !!collector.current?.recovery
-  const busy = collector.current?.research.busy ?? false
   const run = status?.taskRun ?? null
   const taskElapsedMs = run?.startedAtMs != null ? (status?.metadata?.startedAtMs ?? 0) + (status?.elapsedMs ?? 0) - run.startedAtMs : 0
   const progress = experimentProgress({ recording, active, recovery, participant, step, run })
@@ -438,7 +415,6 @@ export default function Controller({ identity }: { identity: Identity }) {
   const showSurvey = active && !recovery && step?.kind === 'survey'
   const waitingForPhone = recording && status?.metadata?.sessionId !== collector.current?.metadata.sessionId
   const requiresRetry = step?.kind === 'task' && taskRuns.some((task) => task.purpose === 'main' && task.taskId === step.taskId && task.mode === step.mode)
-  const endClock = research?.rounds.findLast((round) => round.purpose === 'end')
   function showTroubleshooting() { if (details.current) { details.current.open = true; const retryPanel = details.current.querySelector<HTMLDetailsElement>('[data-retry-panel]'); if (retryPanel) retryPanel.open = true; (retryPanel ?? details.current).scrollIntoView({ behavior: 'smooth', block: 'start' }) } }
   const showTask = active && !recovery && (step?.kind === 'task' || (step?.kind === 'active' && run?.purpose === 'main'))
   const progressManager = (<ParticipantManager variant={collector.current ? 'details' : 'setup'} participant={participant} selected={selectedParticipant} onSelect={setSelectedParticipant}
@@ -470,9 +446,6 @@ export default function Controller({ identity }: { identity: Identity }) {
           <p>{!ready ? '接続・センサー受信・両端末の保存準備がそろうと開始できます。' : !selectedParticipant ? '参加者IDを選んでください。' : continuationIntent.current ? '準備ができたら、同じ参加者の続きの記録を開始してください。' : '説明・同意を確認したら記録を開始し、共通練習へ進みます。'}</p>
           <button className="primary" disabled={!selectedParticipant || !ready || !!panel.pending || reading || !continuationLoaded.current} onClick={start}>{continuationIntent.current ? '同じ参加者の続きの記録を開始' : '記録を開始して練習へ'}</button>
         </> : waitingForPhone ? <p role="status">同じ接続コードのiPhoneを待っています。現在の記録は保持しています。必要なデータは「詳細・トラブル対応」から出力できます。</p> : <>
-          {busy && <p className="notice" role="status">時刻合わせ中です。完了するまでお待ちください。</p>}
-          {active && !busy && !collector.current?.research.hasStartCalibration && <><p className="error">開始時の時刻合わせが成立していません。</p>
-            <button disabled={calibrationBlocked()} onClick={calibrate}>時刻合わせを再計測</button></>}
           {progress.index === 1 && <><p className="status">{run?.purpose === 'practice' && !['complete', 'aborted'].includes(run.phase) ? 'iPhoneで練習中です。' : 'iPhoneの「練習問題を表示」から1問練習してください。'}</p>
             <p>選択・選び直し・情報が消えた後の回答まで体験します。練習が終わると、ここに最初の本番課題が表示されます。</p></>}
           {unconfirmedTasks.length > 0 && <p className="notice" role="status">次へ進む前に、下の「課題終了後の動作確認」を保存してください。</p>}
@@ -485,9 +458,8 @@ export default function Controller({ identity }: { identity: Identity }) {
             disabled={unconfirmedTasks.length > 0 || managementBlocked() || (run != null && !['complete', 'aborted'].includes(run.phase))} onOpen={openSurvey} />}
           {progress.index === 5 && <>
             {active ? <><p>両条件とアンケートが終了しました。センサー記録を停止してから、保存へ進みます。</p>
-              <button className="primary" disabled={!!panel.pending || busy} onClick={stop}>記録を停止して保存へ</button></>
+              <button className="primary" disabled={!!panel.pending} onClick={stop}>記録を停止して保存へ</button></>
               : <>
-                {!recovery && !busy && endClock && endClock.exchanges.length === 0 && <><p className="error">終了時の時刻合わせが成立していません。接続を確認してください。</p><button disabled={calibrationBlocked()} onClick={calibrate}>終了時の時刻合わせを再計測</button></>}
                 <p>受信件数：iPhone {status?.count ?? 0} ／ PC {panel.received} 件</p>
                 {!panel.complete && <p className="notice">未受信または途中のデータがあります。回収状況を確認してください。途中データも出力できます。</p>}
                 {step?.kind !== 'done' && <p className="notice">全課題・アンケートが終了した記録ではありません。中断した内容を確認して保存してください。</p>}
@@ -498,12 +470,12 @@ export default function Controller({ identity }: { identity: Identity }) {
                 <h3>1. 実験データをPCに保存する</h3>
                 <p>下のボタンでファイルをダウンロードします。全記録には、センサー・観察・指示・課題・アンケートのすべてが含まれます。</p>
                 <div className="controls">
-                  <button className={!exports.json ? 'primary' : undefined} disabled={reading || busy} onClick={download}>{exports.json ? '全記録をもう一度ダウンロード（.json）' : '全記録をダウンロード（.json）'}</button>
-                  {surveys.length > 0 && <button className={exports.json && !exports.csv ? 'primary' : undefined} disabled={!exports.json || reading || busy} onClick={downloadQuestionnaires}>アンケート表をダウンロード（.csv）</button>}
+                  <button className={!exports.json ? 'primary' : undefined} disabled={reading} onClick={download}>{exports.json ? '全記録をもう一度ダウンロード（.json）' : '全記録をダウンロード（.json）'}</button>
+                  {surveys.length > 0 && <button className={exports.json && !exports.csv ? 'primary' : undefined} disabled={!exports.json || reading} onClick={downloadQuestionnaires}>アンケート表をダウンロード（.csv）</button>}
                 </div>
                 <p><small>全記録のダウンロード：{exports.json ? 'ボタン操作済み' : '未操作'}{surveys.length > 0 && ` ／ アンケート表：${exports.csv ? 'ボタン操作済み' : '未操作'}`}。実際に保存できたかは次の手順で確認します。</small></p>
                 {exports.json ? <SavedRecording key={collector.current?.metadata.sessionId} active={active}
-                  reading={reading || busy} setReading={setReading} getRecords={outputRecords} onVerified={(saved) => {
+                  reading={reading} setReading={setReading} getRecords={outputRecords} onVerified={(saved) => {
                     if (!collector.current?.matchesSnapshot(saved)) throw new Error('照合中に記録が更新されました。全記録をもう一度ダウンロードして、保存ファイルを確認してください。')
                     verified.current = true; refresh()
                   }} />
@@ -526,8 +498,7 @@ export default function Controller({ identity }: { identity: Identity }) {
       </section>
       {active && recording && <div className="experiment-observation">
         <ObservationPanel run={run} elapsedMs={taskElapsedMs} log={research}
-          busy={busy} disabled={calibrationBlocked() || (run != null && !['briefing', 'complete', 'aborted'].includes(run.phase))}
-          hidden={hideInference} onHidden={setHideInference} onCalibrate={calibrate} />
+          hidden={hideInference} onHidden={setHideInference} />
       </div>}
     </div>
     <details ref={details} className="controller-details"><summary>詳細・トラブル対応</summary>
@@ -557,9 +528,9 @@ export default function Controller({ identity }: { identity: Identity }) {
         <tr><th>回転速度<br /><small>°/s</small></th><td>{number(latest?.rotationRate?.alpha)}</td><td>{number(latest?.rotationRate?.beta)}</td><td>{number(latest?.rotationRate?.gamma)}</td></tr>
       </tbody></table>}
       <p><small>「—」は欠損・未受信。生データは全件記録し、画面・通信はまとめて更新します。上限{MAX_SAMPLES}件で自動停止します。</small></p>
-      <p><small>iPhoneの取得時刻とPCの受信時刻を別々に保存します。元の時刻と時刻合わせの通信記録を保持します。補正値は別途記録し、生データの時刻は書き換えません。</small></p>
+      <p><small>iPhoneの取得時刻とPCの受信時刻を別々に保存します。生データの時刻は書き換えません。</small></p>
         <div className="controls">
-          <button disabled={!recording || reading || busy} onClick={download}>途中データを含めJSONを出力</button>
+          <button disabled={!recording || reading} onClick={download}>途中データを含めJSONを出力</button>
           {surveys.length > 0 && <button disabled={reading} onClick={downloadQuestionnaires}>アンケートCSVを出力</button>}
           <button disabled={!canClear} onClick={clear}>保存を確認して現在の記録を終了</button>
         </div>

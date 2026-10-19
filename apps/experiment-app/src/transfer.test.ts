@@ -115,8 +115,8 @@ it('waits for every estimate, retries missing batches, and exports device proces
   expect(collector.receiveEstimates(1, recorder.estimateBatch(1))).toBe(true)
   expect(collector.complete).toBe(true)
   const data = readTransfer(writeTransfer(collector.export()))
-  expect(data.version).toBe(13)
-  if (data.version !== 13) throw new Error('wrong version')
+  expect(data.version).toBe(14)
+  if (data.version !== 14) throw new Error('wrong version')
   expect(data.inference.config).toEqual(estimationConfig)
   expect(data.inference.estimates).toHaveLength(2)
   expect(data.inference.estimates[0]).toMatchObject({ evaluatedAtMs: 1010, classifiedAtMs: 1011,

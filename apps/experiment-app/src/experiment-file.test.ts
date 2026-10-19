@@ -7,7 +7,9 @@ import { TransferCollector } from './transfer'
 const metadata = { sessionId: 'original', startedAt: '2026-10-16T00:00:00.000Z', timeOriginMs: 1000, startedAtMs: 0, userAgent: 'test' }
 
 it('verifies matching files and distinguishes a valid different recording', async () => {
-  const current = new TransferCollector(metadata, 2000).export()
+  const collector = new TransferCollector(metadata, 2000)
+  collector.research.record({ kind: 'observation', value: 'stationary', controllerAtMs: 100, taskRunId: null, reportedPhase: null })
+  const current = collector.export()
   const file = new File([writeExperimentFile([current])], 'saved.json')
   expect((await readSavedFile(file, async () => [current])).same).toBe(true)
   const other = { ...current, metadata: { ...metadata, sessionId: 'other' } }
