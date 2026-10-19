@@ -1,7 +1,6 @@
 import { z } from 'zod'
 import { participantSchema } from './management'
 import { surveyListSchema, surveyTargetSchema } from './questionnaire'
-import { clockReplySchema } from './research-log'
 import { experimentModeSchema } from './adaptation'
 import { BATCH_SIZE, MAX_SAMPLES, metadataSchema, sampleSchema, completionSchema } from './recording-schema'
 import { estimateSchema, estimationConfigSchema } from './estimation'
@@ -13,8 +12,6 @@ export const joinSchema = z.strictObject({
 })
 export type Identity = z.infer<typeof joinSchema>
 export const messageSchema = z.discriminatedUnion('type', [
-  z.strictObject({ type: z.literal('clock-probe'), sessionId: z.string().min(1), probeId: z.string().min(1) }),
-  clockReplySchema,
   z.strictObject({ type: z.literal('start'), sessionId: z.string().min(1), participant: participantSchema.nullable().default(null), continuation: continuationSchema.optional() }),
   z.strictObject({ type: z.literal('stop'), sessionId: z.string().min(1) }),
   z.strictObject({ type: z.literal('pull-tasks'), sessionId: z.string().min(1) }),

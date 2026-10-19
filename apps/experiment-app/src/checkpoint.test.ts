@@ -2,7 +2,6 @@ import { expect, it } from 'vitest'
 import { TransferCollector, checkpointTransfer, readTransfer, writeTransfer } from './transfer'
 import { readPhoneCheckpoint } from './phone-checkpoint'
 import { TransitTrial } from './tasks'
-import { ResearchRecorder, researchLogSchema } from './research-log'
 import type { LoadedCheckpoint, CheckpointDelta } from './checkpoint'
 import type { MotionSample } from '@physical-adaptive/device-motion'
 
@@ -26,10 +25,15 @@ it('keeps v11 files unchanged and restores old checkpoints without assuming the 
   const disk = { ...saved(c.checkpoint(0, 0)), header: old }
   const before = structuredClone(disk)
   const restored = TransferCollector.restore(disk, 6000, 20).export()
-  expect(restored.version).toBe(13)
+  expect(restored.version).toBe(14)
   expect(restored.observationProtocol).toBeNull()
   expect(restored.research.events).toEqual(old.research.events)
   expect(disk).toEqual(before)
+  const previousCheckpoint = { ...saved(c.checkpoint(0, 0)), header: { ...current, version: 13 } }
+  const resumed = TransferCollector.restore(previousCheckpoint, 6000, 20).export()
+  expect(resumed.version).toBe(14)
+  expect(resumed.research).toEqual(current.research)
+  expect(resumed.observationProtocol).toEqual(current.observationProtocol)
 })
 
 it('restores PC incremental checkpoints without changing raw times, and receives only missing batches', () => {
@@ -48,32 +52,13 @@ it('restores PC incremental checkpoints without changing raw times, and receives
   const restored = TransferCollector.restore(disk, 6000, 20)
   expect(restored.export().samples).toEqual([sample, secondSample])
   expect(restored.export().receipts).toEqual(c.export().receipts)
+  expect(restored.export().research).toEqual({ clock: 'controller-local-performance', events: c.export().research.events })
   expect(restored.management).toMatchObject({ participant: { participantId: 'p01', group: 'G4' }, controllerRestarts: [{ timeOriginMs: 6000, controllerAtMs: 1020 }] })
   expect(restored.receive(0, [sample], 1021)).toBe(false)
   expect(restored.receive(2, [{ ...sample, receivedAtMs: 30, receivedIntervalMs: 5 }], 1022)).toBe(true)
   restored.updateStatus(3, { endedAtMs: 35, stopReason: 'manual' })
   expect(restored.complete).toBe(true)
   expect(readTransfer(writeTransfer(restored.export()))).toEqual(restored.export())
-  expect(disk).toEqual(before)
-})
-
-it('marks an unfinished calibration interrupted while preserving all actual timestamps and unique probe IDs', () => {
-  const original = new ResearchRecorder('session', 1000)
-  original.begin('start', 100)
-  const one = original.poll(100)!
-  original.receive({ ...one, type: 'clock-reply', phoneReceivedAtMs: 200, phoneSentAtMs: 201, phoneTimeOriginMs: 1000 }, 111)
-  const unanswered = original.poll(120)!
-  const disk = original.snapshot(), before = structuredClone(disk)
-  const restored = new ResearchRecorder('session', 1000)
-  restored.restore(disk, 500)
-  expect(restored.busy).toBe(false)
-  expect(restored.hasStartCalibration).toBe(false)
-  expect(restored.snapshot().rounds[0]).toMatchObject({ attempts: 2, failures: 0, interrupted: true, endedAtMs: 500, failedProbes: [] })
-  expect(restored.snapshot().rounds[0]!.exchanges).toEqual(disk.rounds[0]!.exchanges)
-  expect(researchLogSchema.parse(restored.snapshot())).toEqual(restored.snapshot())
-  restored.begin('start', 501)
-  const next = restored.poll(501)!
-  expect(next.probeId).not.toBe(one.probeId); expect(next.probeId).not.toBe(unanswered.probeId)
   expect(disk).toEqual(before)
 })
 

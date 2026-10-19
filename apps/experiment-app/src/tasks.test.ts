@@ -156,7 +156,7 @@ it('retains multiple selection tasks and all timestamps in PC JSON while preserv
   second.present(21010); collector.updateTask(second.snapshot())
   expect(collector.taskCount).toBe(2)
   const data = collector.export()
-  expect(data.version).toBe(13)
+  expect(data.version).toBe(14)
   expect(readTransfer(writeTransfer(data))).toEqual(data)
   expect(data.tasks[0]).toMatchObject({ id: 'one', outcome: 'correct', selectedAtMs: 200, selectedShownAtMs: 210, answer: '10:48' })
   expect(data.tasks[1]).toMatchObject({ id: 'two', phase: 'viewing' })
