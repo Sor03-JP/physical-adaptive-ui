@@ -1,10 +1,10 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { arrivalTimeSchema } from './tasks'
-import type { CSSProperties } from 'react'
+import type { CSSProperties, ReactNode } from 'react'
 import type { PresentationMetrics, RenderedTaskContext } from './adaptation'
 import type { TaskRun } from './tasks'
 
-export default function TransitTaskScreen({ run, onPresent, onAdvance, onSelectTrain, onAnswer, onTap, onStop, onPracticeBegin, onPracticeConfirm, onPracticeFinish }: {
+export default function TransitTaskScreen({ run, onPresent, onAdvance, onSelectTrain, onAnswer, onTap, onStop, onPracticeBegin, onPracticeConfirm, onPracticeFinish, onConfirmStopped, audioControls }: {
   run: TaskRun
   onPresent: (metrics: PresentationMetrics, rendered: RenderedTaskContext) => void
   onAdvance: () => void
@@ -14,6 +14,8 @@ export default function TransitTaskScreen({ run, onPresent, onAdvance, onSelectT
   onPracticeBegin?: () => void
   onPracticeConfirm?: () => void
   onPracticeFinish?: () => void
+  onConfirmStopped?: () => void
+  audioControls?: ReactNode
   onStop: () => void
 }) {
   const firstRow = useRef<HTMLButtonElement | null>(null)
@@ -84,15 +86,17 @@ export default function TransitTaskScreen({ run, onPresent, onAdvance, onSelectT
       </div>
     </> : <>
       <h1>{run.phase === 'waiting-stop' ? '安全に立ち止まってください' : run.phase === 'aborted' ? '中止しました' : '回答を終了しました'}</h1>
-      <p>{run.phase === 'waiting-stop' ? practice ? '立ち止まってから、下の「立ち止まったので回答へ」を押してください。' : '実験者が停止を確認して、回答画面を表示します。操作せずにお待ちください。'
+      <p>{run.phase === 'waiting-stop' ? practice ? '立ち止まってから、下の「立ち止まったので回答へ」を押してください。' : '実験者が停止を確認して、回答画面を表示します。通信が切れている場合は、実験者が下のボタンで進められます。参加者は案内をお待ちください。'
         : run.phase === 'aborted' ? '操作をやめて、実験者にお知らせください。'
         : practice ? '下の「練習を閉じる」を押してください。' : 'この課題は終了です。次の問題やアンケートは実験者が表示します。このまま案内をお待ちください。'}</p>
     </>}
+    {briefingVisible && audioControls}
     {practice && run.phase === 'briefing' && <>
       <p>行をタップすると選択でき、選び直せます。{run.timing.displayMs / 1000}秒後に情報が消えたら、安全に立ち止まってから到着時刻を4桁で回答します。身体の動きは実験者の指示に従ってください。</p>
       <button className="primary" data-task-action="practice-begin" disabled={run.briefingShownAtMs === null} onClick={onPracticeBegin}>理解したので練習を開始</button>
     </>}
     {practice && run.phase === 'waiting-stop' && <button className="primary" data-task-action="practice-confirm" onClick={onPracticeConfirm}>立ち止まったので回答へ</button>}
+    {!practice && run.phase === 'waiting-stop' && <button className="primary" data-task-action="confirm-stopped" onClick={onConfirmStopped}>実験者用：停止を確認して回答へ</button>}
     {practice && ['complete', 'aborted'].includes(run.phase) && <button data-task-action="practice-finish" onClick={onPracticeFinish}>練習を閉じる</button>}
     {!['complete', 'aborted'].includes(run.phase) && <footer><button data-task-action="emergency-stop" onClick={onStop}>実験を中止</button></footer>}
   </div>

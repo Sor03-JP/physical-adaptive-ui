@@ -97,7 +97,13 @@ function validateUiTimes(value: { requestedAtMs: number; uiLog: z.infer<typeof u
 export const previousAdaptiveTaskRunSchema = adaptiveTaskBase.superRefine(validateTaskTimes).superRefine(validateUiTimes)
 const currentPhase = z.enum(['briefing', ...phase.options])
 const currentEventSchema = eventSchema.extend({
-  type: z.enum(['briefing-shown', 'view-requested', ...eventSchema.shape.type.options]), phase: currentPhase,
+  type: z.enum(['briefing-shown', 'view-requested', 'cue-scheduled', 'cue-cancelled', 'cue-unavailable', ...eventSchema.shape.type.options]), phase: currentPhase,
+  cueKind: z.enum(['change', 'finish']).optional(), plannedAtMs: time.optional(), audioTimeSeconds: time.optional(),
+}).superRefine((event, context) => {
+  if (event.type.startsWith('cue-') && (event.cueKind === undefined || event.plannedAtMs === undefined
+    || (event.type === 'cue-scheduled' && event.audioTimeSeconds === undefined))) {
+    context.addIssue({ code: 'custom', message: '合図音の予定・再生要求ログが不足しています。' })
+  }
 })
 const briefingTaskBase = adaptiveTaskBase.extend({
   flow: z.literal('briefing-first'), phase: currentPhase,

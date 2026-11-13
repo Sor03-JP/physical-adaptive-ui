@@ -18,6 +18,7 @@ export default function ObservationPanel({ log, hidden, onHidden, run, elapsedMs
   const lastTime = (event: ResearchEvent | undefined) => event ? `${(event.controllerAtMs / 1000).toFixed(1)}秒（PC記録時刻）` : ''
   return <section>
     <h2>動作の案内</h2>
+    <p>切替はiPhoneの短い音、表示終了は長い音を合図に口頭で指示してください。PCの秒数は通信で遅れるため、指示の基準には使いません。</p>
     {!guide && <p className="notice" role="status">動作の案内は待機中です。本番課題の回答終了後に、動作が予定どおりだったか確認してください。</p>}
     {guide && <div className="movement-guide" aria-label="予定の動作">
       <p>{run?.phase === 'briefing' || run?.phase === 'preparing' ? '開始時の動作' : 'いま案内する動作（予定）'}</p>
