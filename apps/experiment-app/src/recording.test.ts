@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { MotionSample } from '@physical-adaptive/device-motion'
 import { MAX_SAMPLES, MeasurementRecorder, readRecording, writeRecording } from './recording'
+import { estimationConfig } from './estimation'
 
 const metadata = {
   sessionId: 'test-session', startedAt: '2026-10-15T00:00:00.000Z',
@@ -122,4 +123,19 @@ it('rejects a v2 recording whose declared interval contradicts the timestamps', 
   expect(() => readRecording(JSON.stringify({ ...original,
     samples: [{ ...original.samples[0], receivedIntervalMs: 17 }],
   }))).toThrow()
+})
+
+it('stops estimation with recording and starts the next recording without previous candidate history', () => {
+  let now = 20
+  const first = new MeasurementRecorder(metadata, estimationConfig, () => now)
+  first.append(sample); first.evaluate(now)
+  expect(first.latestEstimate?.classificationReason).toBe('warming-up')
+  expect(first.estimateCount).toBe(1)
+  first.stop(30, 'manual')
+  now = 1000; first.evaluate(now)
+  expect(first.estimateCount).toBe(1)
+  const next = new MeasurementRecorder({ ...metadata, sessionId: 'next', startedAtMs: now }, estimationConfig, () => now)
+  next.evaluate(now)
+  expect(next.latestEstimate).toMatchObject({ classifiedState: 'unknown', stabilizedState: 'unknown', candidateSinceMs: null })
+  expect(next.estimateCount).toBe(1)
 })

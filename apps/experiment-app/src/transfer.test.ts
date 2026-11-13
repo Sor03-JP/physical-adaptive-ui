@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import { TransferCollector, readTransfer, writeTransfer } from './transfer'
 import type { MotionSample } from '@physical-adaptive/device-motion'
+import { MeasurementRecorder } from './recording'
+import { estimationConfig } from './estimation'
+import { messageSchema } from './protocol'
 
 const metadata = { sessionId: 'session', startedAt: '2026-10-16T00:00:00.000Z',
   timeOriginMs: 1000, startedAtMs: 10, userAgent: 'phone' }
@@ -75,7 +78,8 @@ it('reads legacy v1 PC transfers with their original field names and raw values'
   const collector = new TransferCollector(metadata, 5000)
   collector.receive(0, [sample], 50); collector.updateStatus(1, completion)
   const original = collector.export()
-  const legacy = { ...original, version: 1, samples: original.samples.map(
+  const { inference: _inference, ...withoutInference } = original
+  const legacy = { ...withoutInference, version: 1, samples: original.samples.map(
     ({ reportedIntervalRaw, receivedIntervalMs: _delta, ...rest }) => ({ ...rest, intervalMs: reportedIntervalRaw }),
   ) }
   const loaded = readTransfer(JSON.stringify(legacy))
@@ -90,4 +94,45 @@ it('keeps receipt intervals correct across transfer batches and rejects inconsis
   expect(collector.receive(1, [{ ...sample, receivedAtMs: 25, receivedIntervalMs: 5 }], 61)).toBe(true)
   collector.updateStatus(2, completion)
   expect(collector.export().samples.map((s) => s.receivedIntervalMs)).toEqual([null, 5])
+})
+
+it('waits for every estimate, retries missing batches, and exports device processing times with settings', () => {
+  let now = 1010
+  const recorder = new MeasurementRecorder(metadata, estimationConfig, () => now + 1)
+  for (let t = 30; t <= 1010; t += 20) recorder.append({ ...sample, receivedAtMs: t, acceleration: { x: 1, y: 0, z: 0 } })
+  recorder.evaluate(now)
+  now = 1210
+  recorder.evaluate(now)
+  recorder.stop(1220, 'manual')
+  const collector = new TransferCollector(metadata, 5000, recorder.estimationConfig)
+  collector.updateStatus(50, recorder.completion, recorder.estimateCount)
+  collector.receive(0, recorder.batch(0), 2000)
+  expect(collector.complete).toBe(false)
+  expect(collector.receiveEstimates(1, recorder.estimateBatch(1))).toBe(false)
+  expect(collector.receiveEstimates(0, recorder.estimateBatch(0, 1))).toBe(true)
+  expect(collector.receiveEstimates(0, recorder.estimateBatch(0, 1))).toBe(false)
+  expect(collector.complete).toBe(false)
+  expect(collector.receiveEstimates(1, recorder.estimateBatch(1))).toBe(true)
+  expect(collector.complete).toBe(true)
+  const data = readTransfer(writeTransfer(collector.export()))
+  expect(data.version).toBe(3)
+  if (data.version !== 3) throw new Error('wrong version')
+  expect(data.inference.config).toEqual(estimationConfig)
+  expect(data.inference.estimates).toHaveLength(2)
+  expect(data.inference.estimates[0]).toMatchObject({ evaluatedAtMs: 1010, classifiedAtMs: 1011,
+    stabilizedAtMs: 1011, classifiedState: 'walking', stabilizedState: 'unknown' })
+  expect(data.inference.estimates[1].classifiedState).toBe('unknown')
+  expect(() => readTransfer(JSON.stringify({ ...data, inference: { ...data.inference, expectedCount: 3 } }))).toThrow()
+  expect(() => readTransfer(JSON.stringify({ ...data, inference: { ...data.inference,
+    estimates: [{ ...data.inference.estimates[0], stabilizedAtMs: 1000 }] } }))).toThrow()
+  expect(messageSchema.parse({ type: 'estimates', sessionId: metadata.sessionId, startIndex: 0,
+    estimates: recorder.estimateBatch(0) }).type).toBe('estimates')
+})
+
+it('preserves version 2 raw-only files without inventing inference data', () => {
+  const collector = new TransferCollector(metadata, 5000)
+  collector.receive(0, [sample], 500); collector.updateStatus(1, completion)
+  const { inference: _inference, ...raw } = collector.export()
+  const version2 = { ...raw, version: 2 }
+  expect(JSON.parse(writeTransfer(readTransfer(JSON.stringify(version2))))).toEqual(version2)
 })

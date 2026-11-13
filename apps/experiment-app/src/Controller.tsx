@@ -8,9 +8,10 @@ import { MAX_SAMPLES } from './recording'
 import { TransferCollector, writeTransfer } from './transfer'
 
 type Command = Extract<Message, { type: 'start' | 'stop' | 'clear' }>
-const panelAtom = atom({ phone: null as PhoneStatus | null, received: 0, valid: 0, complete: false, pending: '' })
+const panelAtom = atom({ phone: null as PhoneStatus | null, received: 0, estimates: 0, valid: 0, complete: false, pending: '' })
 const number = (value: number | null | undefined) => value == null ? '—' : value.toFixed(3)
 const seconds = (value: number) => (value / 1000).toFixed(1)
+const stateNames = { stationary: '静止', walking: '歩行', running: '走行', unknown: '推定不能' }
 
 export default function Controller({ identity }: { identity: Identity }) {
   const [panel, setPanel] = useAtom(panelAtom)
@@ -27,6 +28,7 @@ export default function Controller({ identity }: { identity: Identity }) {
   function refresh() {
     const current = collector.current
     setPanel({ phone: phone.current, received: current?.count ?? 0,
+      estimates: current?.estimateCount ?? 0,
       valid: current?.summary().completeAccelerationCount ?? 0,
       complete: current?.complete ?? false, pending: command.current?.type ?? '' })
   }
@@ -38,8 +40,8 @@ export default function Controller({ identity }: { identity: Identity }) {
         if (collector.current && collector.current.metadata.sessionId !== metadata.sessionId) {
           setError('別の記録を受信しました。現在のデータを保存してから、接続先を確認してください。'); return
         }
-        collector.current ??= new TransferCollector(metadata, performance.timeOrigin)
-        collector.current.updateStatus(packet.count, packet.completion)
+        collector.current ??= new TransferCollector(metadata, performance.timeOrigin, packet.estimationConfig)
+        collector.current.updateStatus(packet.count, packet.completion, packet.estimateCount)
       }
       const pending = command.current
       if (pending?.type === 'start' && metadata?.sessionId === pending.sessionId) command.current = null
@@ -55,6 +57,8 @@ export default function Controller({ identity }: { identity: Identity }) {
       const current = collector.current
       const accepted = current.receive(packet.startIndex, packet.samples, receivedAtMs)
       if (accepted) verified.current = false
+    } else if (packet.type === 'estimates' && packet.sessionId === collector.current?.metadata.sessionId) {
+      if (collector.current.receiveEstimates(packet.startIndex, packet.estimates)) verified.current = false
     }
     refresh()
   }
@@ -66,6 +70,9 @@ export default function Controller({ identity }: { identity: Identity }) {
       const status = phone.current
       if (current && status?.metadata?.sessionId === current.metadata.sessionId && current.count < status.count) {
         send({ type: 'pull', sessionId: current.metadata.sessionId, startIndex: current.count })
+      }
+      if (current && status?.metadata?.sessionId === current.metadata.sessionId && current.estimateCount < status.estimateCount) {
+        send({ type: 'pull-estimates', sessionId: current.metadata.sessionId, startIndex: current.estimateCount })
       }
     }, 200)
     const unload = (event: BeforeUnloadEvent) => {
@@ -108,6 +115,7 @@ export default function Controller({ identity }: { identity: Identity }) {
 
   const status = panel.phone
   const latest = status?.latest
+  const estimate = status?.latestEstimate
   const active = status?.metadata != null && status.completion === null
   const unavailable = !connected || !presence.sensor
   return <>
@@ -150,6 +158,16 @@ export default function Controller({ identity }: { identity: Identity }) {
       {message && <p className="success" role="status">{message}</p>}
     </section>
     <FeaturePreview collector={collector.current} />
+    <section>
+      <h2>自動状態推定（暫定設定）</h2>
+      <p>Classifier（今回の判定）：{estimate ? stateNames[estimate.classifiedState] : '判定前'} ／ Stabilizer（安定化後）：{estimate ? stateNames[estimate.stabilizedState] : '判定前'}</p>
+      <p>判定理由：{status?.latestEstimate?.classificationReason ?? '—'} ／ 安定化：{status?.latestEstimate?.stabilizationReason ?? '—'}</p>
+      <p>推定ログ：iPhone {status?.estimateCount ?? 0}件 ／ PC {panel.estimates}件 ／ 未受信 {Math.max(0, (status?.estimateCount ?? 0) - panel.estimates)}件</p>
+      <p>判定時刻（iPhone基準）：{number(status?.latestEstimate?.evaluatedAtMs)} ms ／ RMS：{number(status?.latestEstimate?.features.acceleration?.rootMeanSquare)} m/s²</p>
+      {estimate?.stationaryFeatures && <p>静止確認用（{status?.estimationConfig?.stationaryWindowMs}ms）のRMS：{number(estimate.stationaryFeatures.acceleration?.rootMeanSquare)} m/s²</p>}
+      <p><small>記録中のみiPhoneで推定します。停止後は最後の結果を表示します。これは実測調整用で、本番の性能は未評価です。UIの自動適応はまだ行いません。</small></p>
+      {status?.estimationConfig && <details><summary>今回の推定設定</summary><pre>{JSON.stringify(status.estimationConfig, null, 2)}</pre></details>}
+    </section>
     <SavedRecording key={status?.metadata?.sessionId ?? 'empty'} collector={collector} active={active}
       reading={reading} setReading={setReading} onVerified={() => { verified.current = true }} />
   </>

@@ -9,10 +9,10 @@ export default function FeaturePreview({ collector }: { collector: TransferColle
   const validWindow = Number.isFinite(windowMs) && windowMs > 0
   const features = validWindow ? collector?.features(windowMs) : null
   return <section>
-    <h2>状態推定の準備：特徴量の確認</h2>
+    <h2>特徴量の確認</h2>
     <label>確認する時間窓（ms）<input type="number" min="0" step="any" value={windowInput}
       onChange={(event) => setWindowInput(event.currentTarget.value)} /></label>
-    <p><small>PC受信済みの記録末尾を基準に計算します。停止後は値を維持します。時間窓・分類閾値は未確定で、身体状態の判定はまだ行いません。</small></p>
+    <p><small>PC受信済みの記録末尾を基準に計算します。停止後は値を維持します。この時間窓は特徴量の閲覧用で、iPhone側の自動推定設定は変えません。</small></p>
     {!validWindow ? <p>正の時間窓を入力してください。</p> : !features ? <p>記録データの受信待ちです。</p> : <>
       <p>受信時刻 {features.startAtMs.toFixed(1)}〜{features.endAtMs.toFixed(1)} ms ／ {features.sampleCount}件</p>
       <p>窓内の最大受信間隔（両端の空白を含む）：{number(features.maximumGapMs)} ms</p>
