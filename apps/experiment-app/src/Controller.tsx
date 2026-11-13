@@ -432,7 +432,7 @@ export default function Controller({ identity }: { identity: Identity }) {
       {active && <button className="stop-recording" disabled={!!panel.pending} onClick={stop}>中断して記録停止</button>}
     </div>
     {[...new Set([presence.error, error, storage.error, status?.storage.error].filter(Boolean))].map((text) => <p className="error controller-alert" role="alert" key={text}>{text}</p>)}
-    {unavailable && recording && <p className="notice controller-alert">通信が切れています。記録は保持しています。iPhoneを更新せず、同じ接続コードで接続し直してください。</p>}
+    {unavailable && recording && <p className="notice controller-alert">通信が切れています。iPhoneの課題計測・合図音・端末内保存は続きます。PCの秒数で指示せず、iPhoneの音を合図にしてください。画面を更新せず接続が戻るのを待つと、未受信データを回収します。</p>}
     {recovery && <p className="notice controller-alert">iPhone更新による中断記録です。保存済みデータを回収してください。途中課題は自動再開しません。</p>}
     <ExperimentProgress index={progress.index} />
     <div className="controller-workspace">
