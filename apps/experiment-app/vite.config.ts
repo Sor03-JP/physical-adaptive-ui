@@ -7,4 +7,5 @@ import { measurementRelay } from './server/relay'
 export default defineConfig({
   plugins: [react(), tailwindcss(), basicSsl(), measurementRelay()],
   server: { host: process.env.VITE_LAN === 'true' },
+  preview: { host: process.env.VITE_LAN === 'true', port: 5173, strictPort: true },
 })
