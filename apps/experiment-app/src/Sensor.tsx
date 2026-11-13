@@ -21,9 +21,12 @@ import { TransitTrial, canStartPractice, taskSnapshots } from './tasks'
 import type { ExperimentMode, PresentationMetrics, RenderedTaskContext } from './adaptation'
 import type { TaskRun, TrialTaskId } from './tasks'
 import type { SurveyRun } from './questionnaire'
+import { TaskAudio } from './task-audio'
 
 export default function Sensor({ identity }: { identity: Identity }) {
   const source = useRef<DeviceMotionSource | null>(null)
+  const audio = useRef(new TaskAudio())
+  const [audioReady, setAudioReady] = useState(false)
   const recorder = useRef<MeasurementRecorder | null>(null)
   const recovered = useRef<PhoneArchive | null>(null)
   const participant = useRef<Participant | null>(null)
@@ -50,7 +53,9 @@ export default function Sensor({ identity }: { identity: Identity }) {
   const presentTask = useCallback((metrics: PresentationMetrics | null = null, rendered?: RenderedTaskContext) => {
     const current = trial.current
     if (!current) return
-    if (current.present(performance.now(), metrics, rendered)) renderTask()
+    const changed = current.present(performance.now(), metrics, rendered)
+    audio.current.schedule(current)
+    if (changed) renderTask()
   }, [renderTask])
   const advanceTask = useCallback(() => {
     const now = performance.now()
@@ -81,7 +86,8 @@ export default function Sensor({ identity }: { identity: Identity }) {
   })
 
   const finish = useCallback((reason: StopReason) => {
-    trial.current?.abort(recorder.current?.completion?.endedAtMs ?? performance.now(), reason)
+    audio.current.cancel()
+    trial.current?.abort(performance.now(), reason)
     renderTask()
     recorder.current?.stop(performance.now(), reason)
     source.current?.stop(); streaming.current = false
@@ -116,7 +122,7 @@ export default function Sensor({ identity }: { identity: Identity }) {
     return {
       ...(continuation.current ? { continuation: continuation.current } : {}),
       type: 'status', participant: participant.current, recovered: false, recoverySavedThroughMs: null,
-      storage: { ready: storage.ready, savedAt: storage.savedAt, error: storage.error, restored: storage.restored }, streaming: streaming.current, visible: !document.hidden, ready: enabled.current && events.current.valid > 0 && !document.hidden,
+      storage: { ready: storage.ready, savedAt: storage.savedAt, error: storage.error, restored: storage.restored }, streaming: streaming.current, visible: !document.hidden, ready: enabled.current && audio.current.ready && events.current.valid > 0 && !document.hidden,
       permission: source.current?.getPermission() ?? 'prompt', error: error.current,
       receivedEventCount: events.current.total, validEventCount: events.current.valid,
       recoveredTasks: [], questionnaires: questionnaires.current.snapshot(),
@@ -191,10 +197,12 @@ export default function Sensor({ identity }: { identity: Identity }) {
           }
         }
         if (message.type === 'task-abort' && trial.current?.snapshot().id === message.runId) {
+          audio.current.cancel()
           trial.current.abort(performance.now(), message.reason); renderTask(); error.current = ''
         }
         if (message.type === 'task-begin' && trial.current?.snapshot().id === message.runId) {
           if (!current.active) throw new Error('センサー記録中に計測を開始してください。')
+          if (!audio.current.ready) throw new Error('iPhoneで合図音を準備してから開始してください。')
           trial.current.begin(performance.now()); renderTask()
         }
         if (message.type === 'task-answer' && trial.current?.snapshot().id === message.runId) {
@@ -225,10 +233,12 @@ export default function Sensor({ identity }: { identity: Identity }) {
   const { flush } = storage
   useEffect(() => {
     const generationRef = generation
+    const taskAudio = audio.current
     const timer = window.setInterval(() => {
       recorder.current?.evaluate(performance.now())
       if (recorder.current?.completion?.stopReason === 'capacity') finish('capacity')
       advanceTask()
+      setAudioReady(taskAudio.ready)
       const current = readStatus()
       send(current)
       setStatus(error.current || (recorder.current?.active ? '記録中です。操作はPCで行います。'
@@ -244,6 +254,7 @@ export default function Sensor({ identity }: { identity: Identity }) {
     window.addEventListener('beforeunload', unload)
     return () => {
       generationRef.current++; source.current?.stop(); streaming.current = false
+      taskAudio.close()
       clearInterval(timer); document.removeEventListener('visibilitychange', hidden)
       window.removeEventListener('beforeunload', unload)
     }
@@ -251,11 +262,12 @@ export default function Sensor({ identity }: { identity: Identity }) {
 
   function practiceAvailable() {
     const all = new Map([...(continuation.current?.tasks ?? []).filter((t) => t.purpose !== 'practice' || t.phase === 'complete').map((t) => [t.id, t] as const), ...taskHistory.current])
-    return storage.ready && !storage.error && !recovered.current && connected && controller && canStartPractice(recorder.current?.active ?? false, taskSnapshots(all, trial.current?.snapshot() ?? null), questionnaires.current.answering)
+    return storage.ready && !storage.error && !recovered.current && audio.current.ready && connected && controller && canStartPractice(recorder.current?.active ?? false, taskSnapshots(all, trial.current?.snapshot() ?? null), questionnaires.current.answering)
   }
   function startTrial(runId: string, taskId: TrialTaskId, mode: ExperimentMode) {
     const current = recorder.current
     if (!current) return
+    audio.current.cancel()
     const previous = trial.current?.snapshot()
     if (previous) taskHistory.current.set(previous.id, previous)
     questionnaires.current.dismiss(); renderSurvey(); setDismissedPracticeId(null)
@@ -270,6 +282,7 @@ export default function Sensor({ identity }: { identity: Identity }) {
   }
   function practiceAction(action: 'begin' | 'confirm') {
     if (trial.current?.snapshot().purpose !== 'practice') return
+    if (action === 'begin' && !audio.current.ready) { error.current = '合図音を準備してください。'; return }
     if (action === 'begin') trial.current.begin(performance.now())
     else trial.current.confirmStopped(performance.now())
     renderTask(); send(snapshot())
@@ -279,25 +292,44 @@ export default function Sensor({ identity }: { identity: Identity }) {
     if (current?.purpose !== 'practice' || !trial.current?.complete) return
     setDismissedPracticeId(current.id); send(snapshot())
   }
+  function confirmStoppedOnPhone() {
+    trial.current?.confirmStopped(performance.now(), 'phone')
+    renderTask(); send(snapshot()); void storage.flush()
+  }
   async function enable() {
     const token = ++generation.current
     setPending(true)
     try {
       source.current ??= createBrowserMotionSource()
-      const permission = await source.current.requestPermission()
+      const [permission] = await Promise.all([source.current.requestPermission(), audio.current.prepare()])
       if (token !== generation.current) return
       if (permission !== 'granted') throw new Error('センサーの利用が許可されませんでした。')
       if (document.hidden) throw new Error('画面を表示してから操作してください。')
-      enabled.current = true; error.current = ''; feed()
+      enabled.current = true; setAudioReady(true); error.current = ''; feed()
     } catch (cause) { error.current = cause instanceof Error ? cause.message : '取得を開始できませんでした。' }
     finally { if (token === generation.current) setPending(false) }
   }
+  async function prepareAudio() {
+    try { await audio.current.prepare(); setAudioReady(true); error.current = '' }
+    catch (cause) { setAudioReady(false); error.current = cause instanceof Error ? cause.message : '合図音を準備できませんでした。' }
+    setStatus(error.current || '合図音を試聴しました。音量を確認してください。')
+    send(snapshot())
+  }
+  const audioControls = <div className="notice">
+      <p>合図音：{audioReady ? '準備済み' : '未準備'}。切替は短い音、終了は長い音です。音に直接反応せず、実験者の指示に従ってください。</p>
+      <button onClick={() => void prepareAudio()}>合図音を準備・試聴</button>
+      <p><small>貸出前に音量を確認してください。画面は開いたままにします。</small></p>
+      {error.current && <p className="error" role="alert">{error.current}</p>}
+    </div>
   return <section>
+    {(!taskRun || taskRun.id === dismissedPracticeId) && !survey && audioControls}
     {survey && <QuestionnaireScreen key={survey.id} run={survey} onPresent={presentSurvey}
       onAnswer={(id, item, value) => { questionnaires.current.answer(id, item, value, performance.now()); renderSurvey(); send(snapshot()) }}
       onSubmit={(id) => { questionnaires.current.submit(id, performance.now()); renderSurvey(); send(snapshot()); void storage.flush() }} />}
     {!survey && taskRun && taskRun.id !== dismissedPracticeId && <TransitTaskScreen key={taskRun.id} run={taskRun} onPresent={presentTask} onAdvance={advanceTask}
+      audioControls={audioControls}
       onPracticeBegin={() => practiceAction('begin')} onPracticeConfirm={() => practiceAction('confirm')} onPracticeFinish={closePractice}
+      onConfirmStopped={confirmStoppedOnPhone}
       onSelectTrain={(index) => { trial.current?.select(index, performance.now()); renderTask(); send(snapshot()) }}
       onAnswer={(value) => { trial.current?.answer(value, performance.now()); renderTask(); send(snapshot()); void storage.flush() }}
       onTap={(x, y, action) => { trial.current?.tap(performance.now(), x, y, action) }}

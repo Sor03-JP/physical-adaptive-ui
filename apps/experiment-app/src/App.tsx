@@ -18,7 +18,7 @@ export default function App() {
   return <main className={identity.role === 'controller' ? 'controller-page' : undefined}>
     <h1>{identity.role === 'controller' ? '評価実験コントローラー' : '乗換情報の確認実験'}</h1>
     <p>接続コード：<strong>{identity.room}</strong> ／ {identity.role === 'controller' ? 'PC操作画面' : 'iPhone取得画面'}</p>
-    {!import.meta.hot && <p className="error" role="alert">PC連携は開発サーバーで利用してください。</p>}
+    {import.meta.env.DEV && <p className="notice">開発用画面です。本実験はビルド後に start:measurement で起動してください。開発中は通信復帰時に画面が更新される場合があります。</p>}
     {!window.isSecureContext && <p className="error" role="alert">HTTPSのURLで開いてください。</p>}
     {identity.role === 'controller' ? <Controller identity={identity} /> : <Sensor identity={identity} />}
   </main>

@@ -38,6 +38,10 @@ export class TransitTrial {
   get complete(): boolean { return this.run.phase === 'complete' || this.run.phase === 'aborted' }
   snapshot(): TaskRun { return structuredClone(this.run) }
 
+  recordCue(type: 'cue-scheduled' | 'cue-cancelled' | 'cue-unavailable', cueKind: 'change' | 'finish', plannedAtMs: number, now: number, audioTimeSeconds?: number): void {
+    this.log(type, now, { cueKind, plannedAtMs, ...(audioTimeSeconds === undefined ? {} : { audioTimeSeconds }) })
+  }
+
   private log(type: TaskEvent['type'], now: number, fields: Partial<TaskEvent> = {}) {
     if (this.run.events.length >= 499) { this.abort(now, 'event-capacity'); return }
     this.run.events.push({ ...fields, type, atMs: now, phase: this.run.phase })
@@ -119,10 +123,10 @@ export class TransitTrial {
     if (this.run.phase === 'viewing' && index === targetTrainIndex(this.run.problem)) this.run.selectedAtMs ??= now
   }
 
-  confirmStopped(now: number): void {
+  confirmStopped(now: number, source: 'controller' | 'phone' = 'controller'): void {
     this.advance(now)
     if (this.run.phase !== 'waiting-stop') return
-    this.run.stopConfirmedAtMs = now; this.run.phase = 'answering'; this.log('stop-confirmed', now)
+    this.run.stopConfirmedAtMs = now; this.run.phase = 'answering'; this.log('stop-confirmed', now, source === 'phone' ? { action: 'phone' } : {})
   }
 
   answer(value: string, now: number): void {

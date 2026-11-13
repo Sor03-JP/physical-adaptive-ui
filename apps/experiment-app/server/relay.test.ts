@@ -1,46 +1,82 @@
-import { expect, it, vi } from 'vitest'
-import type { ViteDevServer, WebSocketClient } from 'vite'
+import { EventEmitter } from 'node:events'
+import { Readable } from 'node:stream'
+import { afterEach, expect, it } from 'vitest'
+import type { IncomingMessage, ServerResponse } from 'node:http'
+import type { PreviewServer, ViteDevServer } from 'vite'
 import { measurementRelay } from './relay'
 
-function harness() {
-  const handlers = new Map<string, (data: unknown, client: WebSocketClient) => void>()
-  const hook = measurementRelay().configureServer
-  if (typeof hook !== 'function') throw new Error('missing server hook')
-  const server = { ws: { on: (name: string, handler: (data: unknown, client: WebSocketClient) => void) => handlers.set(name, handler) },
+const cleanups: (() => void)[] = []
+afterEach(() => { cleanups.splice(0).forEach((close) => close()) })
+function harness(preview = false) {
+  let middleware: (req: IncomingMessage, res: ServerResponse, next: () => void) => void
+  const server = { middlewares: { use: (handler: typeof middleware) => { middleware = handler } },
     resolvedUrls: { network: ['https://192.168.1.10:5173/'] } }
-  hook.call({} as never, server as unknown as ViteDevServer)
-  function client() {
-    let close = () => {}
-    const fake = { send: vi.fn(), socket: { on: (_: string, callback: () => void) => { close = callback } } }
-    const value = fake as unknown as WebSocketClient
-    return { value, send: fake.send, close: () => close() }
+  const plugin = measurementRelay()
+  const hook = preview ? plugin.configurePreviewServer : plugin.configureServer
+  if (typeof hook !== 'function') throw new Error('missing server hook')
+  hook.call({} as never, server as ViteDevServer & PreviewServer)
+  function request(method: string, path: string, body = '', headers = {}) {
+    const req = Object.assign(Readable.from([Buffer.from(body)]), { method, url: path,
+      headers: { host: '192.168.1.10:5173', origin: 'https://192.168.1.10:5173', 'content-type': 'application/json', ...headers }, socket: { encrypted: true } })
+    const emitter = new EventEmitter()
+    const res = Object.assign(emitter, { statusCode: 0, headersSent: false, destroyed: false, writableLength: 0,
+      chunks: [] as string[], headers: {} as Record<string, string>,
+      writeHead(code: number, headers = {}) { this.statusCode = code; this.headers = headers; this.headersSent = true; return this },
+      write(chunk: string) { this.chunks.push(chunk); return true },
+      end() { this.destroyed = true; emitter.emit('close'); emitter.emit('finish'); return this },
+      destroy() { return this.end() },
+    })
+    const finished = new Promise<void>((resolve) => res.once('finish', resolve))
+    middleware(req as unknown as IncomingMessage, res as unknown as ServerResponse, () => { res.writeHead(404).end() })
+    cleanups.push(() => res.destroy())
+    return { res, finished, events: (event: string) => res.chunks.filter((s) => s.startsWith(`event: ${event}\n`)).map((s) => JSON.parse(s.split('data: ')[1])) }
   }
-  const emit = (name: string, data: unknown, client: WebSocketClient) => handlers.get(name)!(data, client)
-  return { client, emit }
+  let id = 0
+  function join(role: string, room = 'a', client = `00000000-0000-4000-8000-${String(++id).padStart(12, '0')}`) {
+    return { ...request('GET', `/__measurement/events?role=${role}&room=${room}&client=${client}`), client }
+  }
+  async function post(client: string, data: unknown, headers = {}) {
+    const result = request('POST', `/__measurement/message?client=${client}`, JSON.stringify(data), headers)
+    await result.finished
+    return result.res.statusCode
+  }
+  return { join, post, request }
 }
 
-it('isolates rooms and only allows controller commands to reach the paired sensor', () => {
-  const h = harness(), pc = h.client(), phone = h.client(), other = h.client()
-  h.emit('measurement:join', { room: 'a', role: 'controller' }, pc.value)
-  h.emit('measurement:join', { room: 'a', role: 'sensor' }, phone.value)
-  h.emit('measurement:join', { room: 'b', role: 'sensor' }, other.value)
-  pc.send.mockClear(); phone.send.mockClear(); other.send.mockClear()
-  h.emit('measurement:message', { type: 'start', sessionId: 'one' }, pc.value)
-  expect(phone.send).toHaveBeenCalledWith('measurement:message', { type: 'start', sessionId: 'one', participant: null })
-  expect(other.send).not.toHaveBeenCalled()
-  h.emit('measurement:message', { type: 'start', sessionId: 'wrong-role' }, phone.value)
-  expect(pc.send).not.toHaveBeenCalled()
+it.each([false, true])('isolates rooms and validates roles in development/preview (%s)', async (preview) => {
+  const h = harness(preview), pc = h.join('controller'), phone = h.join('sensor'), other = h.join('sensor', 'b')
+  expect(await h.post(pc.client, { type: 'start', sessionId: 'one' })).toBe(204)
+  expect(phone.events('message')).toEqual([{ type: 'start', sessionId: 'one', participant: null }])
+  expect(other.events('message')).toEqual([])
+  expect(await h.post(phone.client, { type: 'start', sessionId: 'wrong-role' })).toBe(403)
+  expect(pc.events('message')).toEqual([])
+  expect(await h.post(pc.client, { type: 'unknown' })).toBe(400)
+  expect(await h.post(pc.client, { type: 'stop', sessionId: 'one' }, { origin: 'https://evil.example' })).toBe(403)
+  expect(await h.post(pc.client, { type: 'stop', sessionId: 'one' }, { origin: undefined })).toBe(403)
 })
 
-it('rejects duplicate roles, removes disconnected peers, and provides the iPhone connection URL', () => {
-  const h = harness(), pc = h.client(), duplicate = h.client()
-  h.emit('measurement:join', { room: 'a', role: 'controller' }, pc.value)
-  expect(pc.send).toHaveBeenLastCalledWith('measurement:presence', expect.objectContaining({
-    sensorUrls: ['https://192.168.1.10:5173/?role=sensor&room=a'],
-  }))
-  h.emit('measurement:join', { room: 'a', role: 'controller' }, duplicate.value)
-  expect(duplicate.send).toHaveBeenLastCalledWith('measurement:presence', expect.objectContaining({ error: expect.stringContaining('既に') }))
-  pc.close()
-  h.emit('measurement:join', { room: 'a', role: 'controller' }, duplicate.value)
-  expect(duplicate.send).toHaveBeenLastCalledWith('measurement:presence', expect.objectContaining({ error: '', controller: true }))
+it('reconnects the same client, rejects duplicate roles, and only forwards to the replacement stream', async () => {
+  const h = harness(), pc = h.join('controller'), phone = h.join('sensor')
+  expect(pc.events('presence').at(-1)).toMatchObject({ sensor: true, sensorUrls: ['https://192.168.1.10:5173/?role=sensor&room=a'] })
+  const duplicate = h.join('sensor')
+  expect(duplicate.events('presence').at(-1).error).toContain('既に')
+  const reconnected = h.join('sensor', 'a', phone.client)
+  expect(phone.res.destroyed).toBe(true)
+  expect(reconnected.events('presence').at(-1)).toMatchObject({ sensor: true, controller: true, error: '' })
+  await h.post(pc.client, { type: 'stop', sessionId: 'one' })
+  expect(phone.events('message')).toEqual([])
+  expect(reconnected.events('message')).toEqual([{ type: 'stop', sessionId: 'one' }])
+  reconnected.res.destroy()
+  expect(pc.events('presence').at(-1).sensor).toBe(false)
+  expect(await h.post(phone.client, { type: 'stop', sessionId: 'one' })).toBe(409)
+})
+
+it('rejects cross-site streams and closes blocked streams instead of retaining unbounded data', () => {
+  const h = harness()
+  const crossSite = h.request('GET', '/__measurement/events?room=a&role=sensor&client=00000000-0000-4000-8000-000000000001', '', { 'sec-fetch-site': 'cross-site' })
+  expect(crossSite.res.statusCode).toBe(403)
+  const pc = h.join('controller')
+  pc.res.writableLength = 21 * 1024 * 1024
+  h.join('sensor')
+  expect(pc.res.destroyed).toBe(true)
 })
