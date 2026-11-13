@@ -44,7 +44,7 @@ export const metadataSchema = z.strictObject({
 })
 
 export const completionSchema = z.strictObject({
-  endedAtMs: finite.nonnegative(), stopReason: z.enum(['manual', 'page-hidden', 'capacity']),
+  endedAtMs: finite.nonnegative(), stopReason: z.enum(['manual', 'page-hidden', 'capacity', 'recovered-after-reload']),
 })
 
 const currentRecordingBase = metadataSchema.extend({

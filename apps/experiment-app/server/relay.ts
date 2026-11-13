@@ -45,7 +45,7 @@ export function measurementRelay(): Plugin {
         const identity = members.get(client)
         const parsed = messageSchema.safeParse(raw)
         if (!identity || !parsed.success) return
-        const fromSensor = parsed.data.type === 'status' || parsed.data.type === 'batch' || parsed.data.type === 'estimates'
+        const fromSensor = parsed.data.type === 'status' || parsed.data.type === 'batch' || parsed.data.type === 'estimates' || parsed.data.type === 'task-history'
         if (fromSensor !== (identity.role === 'sensor')) return
         for (const [peer, member] of members) {
           if (member.room === identity.room && member.role !== identity.role) {

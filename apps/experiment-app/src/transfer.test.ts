@@ -78,7 +78,7 @@ it('reads legacy v1 PC transfers with their original field names and raw values'
   const collector = new TransferCollector(metadata, 5000)
   collector.receive(0, [sample], 50); collector.updateStatus(1, completion)
   const original = collector.export()
-  const { inference: _inference, ...withoutInference } = original
+  const { movementConfirmations: _movementConfirmations, observationProtocol: _observationProtocol, management: _management, recovery: _recovery, questionnaires: _questionnaires, research: _research, inference: _inference, tasks: _tasks, ...withoutInference } = original
   const legacy = { ...withoutInference, version: 1, samples: original.samples.map(
     ({ reportedIntervalRaw, receivedIntervalMs: _delta, ...rest }) => ({ ...rest, intervalMs: reportedIntervalRaw }),
   ) }
@@ -115,8 +115,8 @@ it('waits for every estimate, retries missing batches, and exports device proces
   expect(collector.receiveEstimates(1, recorder.estimateBatch(1))).toBe(true)
   expect(collector.complete).toBe(true)
   const data = readTransfer(writeTransfer(collector.export()))
-  expect(data.version).toBe(3)
-  if (data.version !== 3) throw new Error('wrong version')
+  expect(data.version).toBe(14)
+  if (data.version !== 14) throw new Error('wrong version')
   expect(data.inference.config).toEqual(estimationConfig)
   expect(data.inference.estimates).toHaveLength(2)
   expect(data.inference.estimates[0]).toMatchObject({ evaluatedAtMs: 1010, classifiedAtMs: 1011,
@@ -132,7 +132,7 @@ it('waits for every estimate, retries missing batches, and exports device proces
 it('preserves version 2 raw-only files without inventing inference data', () => {
   const collector = new TransferCollector(metadata, 5000)
   collector.receive(0, [sample], 500); collector.updateStatus(1, completion)
-  const { inference: _inference, ...raw } = collector.export()
+  const { movementConfirmations: _movementConfirmations, observationProtocol: _observationProtocol, management: _management, recovery: _recovery, questionnaires: _questionnaires, research: _research, inference: _inference, tasks: _tasks, ...raw } = collector.export()
   const version2 = { ...raw, version: 2 }
   expect(JSON.parse(writeTransfer(readTransfer(JSON.stringify(version2))))).toEqual(version2)
 })
