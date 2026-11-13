@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { atom, useAtom } from 'jotai'
 import SavedRecording from './SavedRecording'
+import FeaturePreview from './FeaturePreview'
 import type { Identity, Message, PhoneStatus, Presence } from './protocol'
 import { useMeasurementTransport } from './transport'
 import { MAX_SAMPLES } from './recording'
@@ -148,6 +149,7 @@ export default function Controller({ identity }: { identity: Identity }) {
       </div>
       {message && <p className="success" role="status">{message}</p>}
     </section>
+    <FeaturePreview collector={collector.current} />
     <SavedRecording key={status?.metadata?.sessionId ?? 'empty'} collector={collector} active={active}
       reading={reading} setReading={setReading} onVerified={() => { verified.current = true }} />
   </>
