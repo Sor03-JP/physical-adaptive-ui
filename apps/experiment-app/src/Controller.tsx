@@ -154,7 +154,10 @@ export default function Controller({ identity }: { identity: Identity }) {
     }
     refresh()
   }
-  const send = useMeasurementTransport(identity, { message: receive, presence: setPresence, connection: setConnected, error: setError })
+  const send = useMeasurementTransport(identity, { message: receive, presence: setPresence, connection: (value) => {
+    if (!value) historySession.current = ''
+    setConnected(value)
+  }, error: setError })
   useEffect(() => {
     const timer = window.setInterval(() => {
       if (command.current) send(command.current)
