@@ -15,9 +15,12 @@ export default function App() {
     history.replaceState(null, '', url)
     return value
   })
-  return <main className={identity.role === 'controller' ? 'controller-page' : undefined}>
-    <h1>{identity.role === 'controller' ? '評価実験コントローラー' : '乗換情報の確認実験'}</h1>
-    <p>接続コード：<strong>{identity.room}</strong> ／ {identity.role === 'controller' ? 'PC操作画面' : 'iPhone取得画面'}</p>
+  const isController = identity.role === 'controller'
+  return <main className={isController ? 'controller-page' : 'phone-page'}>
+    <header className="app-header">
+      <h1>{isController ? '評価実験コントローラー' : '乗換情報の確認実験'}</h1>
+      <p className="connection-code">接続コード <strong translate="no">{identity.room}</strong></p>
+    </header>
     {import.meta.env.DEV && <p className="notice">開発用画面です。本実験はビルド後に start:measurement で起動してください。開発中は通信復帰時に画面が更新される場合があります。</p>}
     {!window.isSecureContext && <p className="error" role="alert">HTTPSのURLで開いてください。</p>}
     {identity.role === 'controller' ? <Controller identity={identity} /> : <Sensor identity={identity} />}

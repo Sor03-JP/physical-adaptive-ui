@@ -477,10 +477,14 @@ export default function Controller({ identity }: { identity: Identity }) {
       csvExported={csvExported} verified={verified.current} />
   )
   return <>
-    <div className="controller-status" aria-label="接続と記録の状態">
-      <p>iPhone：<strong>{unavailable ? '未接続' : status?.ready ? '準備済み' : status?.recovered ? '保存データ回収中' : '受信・許可を確認'}</strong>
-        <span>端末内保存：{storage.error || status?.storage.error ? 'エラー' : storage.ready && status?.storage.ready ? '準備済み' : '準備中'}</span>
-        <span>{participant ? `参加者 ${participant.participantId}` : '参加者未選択'} ／ {active ? '記録中' : recording ? '停止中' : '開始前'}</span></p>
+    <div className="controller-status">
+      <dl aria-label="接続と記録の状態">
+        <div><dt>iPhone</dt><dd className={!unavailable && status?.ready ? 'success' : undefined}>{unavailable ? '未接続' : status?.ready ? '準備済み' : status?.recovered ? '保存データ回収中' : '受信・許可を確認'}</dd></div>
+        <div><dt>端末内保存</dt><dd className={storage.error || status?.storage.error ? 'error' : storage.ready && status?.storage.ready ? 'success' : undefined}>
+          {storage.error || status?.storage.error ? 'エラー' : storage.ready && status?.storage.ready ? '準備済み' : '準備中'}
+        </dd></div>
+        <div><dt>参加者</dt><dd>{participant?.participantId ?? '未選択'} <span className="recording-state" data-active={active || undefined}>{active ? '記録中' : recording ? '停止中' : '開始前'}</span></dd></div>
+      </dl>
       {active && <button className="stop-recording" disabled={!!panel.pending} onClick={stop}>中断して記録停止</button>}
     </div>
     {[...new Set([presence.error, error, storage.error, status?.storage.error].filter(Boolean))].map((text) => <p className="error controller-alert" role="alert" key={text}>{text}</p>)}
@@ -489,16 +493,18 @@ export default function Controller({ identity }: { identity: Identity }) {
     {!autonomous && <ExperimentProgress index={progress.index} />}
     <div className="controller-workspace">
       <section className="experiment-current" aria-label="現在の操作">
-        <h2>{waitingForPhone ? '保存記録を復旧・iPhoneの接続を確認中' : autonomous && active ? 'iPhoneで説明・練習・本番を進めます' : progress.title}</h2>
+        <h2>{waitingForPhone ? '保存記録を復旧・iPhoneの接続を確認中' : autonomous && active ? 'iPhoneで実験を進める' : progress.title}</h2>
         {panel.pending && <p role="status">操作を送信しています。iPhoneの応答を待っています。</p>}
         {!recording ? <>
           {unavailable && <><p>iPhoneで同じ接続コードのURLを開き、センサーの利用を許可してください。</p>
-            {presence.sensorUrls.map((url) => <p key={url}><a href={url}>{url}</a></p>)}</>}
+            {presence.sensorUrls.map((url) => <p className="device-link" key={url}><a href={url}>{url}</a></p>)}</>}
           {!unavailable && !status?.ready && <p>iPhone画面を表示し、「センサー利用を許可・準備」を押してください。</p>}
           {progressManager}
           {continuationIntent.current && <p className="notice">同じ参加者の続きから再開します。完了済みの課題・送信済みアンケートは引き継ぎます。</p>}
-          <p>{!ready ? '接続・センサー受信・両端末の保存準備がそろうと開始できます。' : !selectedParticipant ? '参加者IDを選んでください。' : continuationIntent.current ? '準備ができたら、同じ参加者の続きの記録を開始してください。' : '参加者の設定を同期したら、説明・同意とチュートリアルをiPhoneで行います。'}</p>
-          <button className="primary" disabled={!selectedParticipant || !ready || !!panel.pending || reading || !continuationLoaded.current} onClick={start}>{continuationIntent.current ? '同じ参加者の続きの記録を開始' : '設定を同期してiPhoneで開始'}</button>
+          <div className="controller-actions">
+            <p>{!ready ? '接続・センサー受信・両端末の保存準備がそろうと開始できます。' : !selectedParticipant ? '参加者IDを選んでください。' : continuationIntent.current ? '準備ができたら、同じ参加者の続きの記録を開始してください。' : '設定を同期すると、iPhoneに説明・同意画面が表示されます。'}</p>
+            <button className="primary" disabled={!selectedParticipant || !ready || !!panel.pending || reading || !continuationLoaded.current} onClick={start}>{continuationIntent.current ? '同じ参加者の続きの記録を開始' : '設定を同期してiPhoneで開始'}</button>
+          </div>
         </> : waitingForPhone ? <p role="status">同じ接続コードのiPhoneを待っています。現在の記録は保持しています。必要なデータは「詳細・トラブル対応」から出力できます。</p> : <>
           {autonomous && active && <>
             <p>説明・同意、チュートリアル、本番課題とアンケートはiPhoneで進めてください。実験者は監視と開始・停止・課題後の動作確認を行います。</p>
@@ -524,28 +530,33 @@ export default function Controller({ identity }: { identity: Identity }) {
                 {step?.kind !== 'done' && <p className="notice">全課題・アンケートが終了した記録ではありません。中断した内容を確認して保存してください。</p>}
                 {!autonomous && participant && step?.kind !== 'done' && <ContinuationPanel participantId={participant.participantId}
                   disabled={!canContinue || continuing} onContinue={(reason) => void continueParticipant(reason)} />}
-                <h3>実験を終了する・次の参加者へ進む場合</h3>
                 {collector.current?.continuation && <p>今回の記録と、続行元の記録をまとめて1つのJSONに保存します。</p>}
-                <h3>1. 実験データをPCに保存する</h3>
-                <p>下のボタンでファイルをダウンロードします。全記録には、センサー・観察・指示・課題・アンケートのすべてが含まれます。</p>
-                <div className="controls">
-                  <button className="primary" disabled={reading} onClick={download}>全記録をダウンロード（.json）</button>
-                  {surveys.length > 0 && <button className={!csvExported ? 'primary' : undefined} disabled={reading} onClick={downloadQuestionnaires}>アンケート表をダウンロード（.csv）</button>}
-                </div>
-                <p><small>全記録の保存：{verified.current ? 'ファイル一致確認済み' : 'ファイル未確認'}{surveys.length > 0 && ` ／ アンケート表：${csvExported ? 'ボタン操作済み' : '未操作'}`}。実際に保存できたかは次の手順で確認します。</small></p>
-                <SavedRecording key={collector.current?.metadata.sessionId} active={active}
-                  reading={reading} setReading={setReading} getRecords={outputRecords} onVerified={(saved) => {
-                    if (!collector.current?.matchesSnapshot(saved)) throw new Error('照合中に記録が更新されました。全記録をもう一度ダウンロードして、保存ファイルを確認してください。')
-                    verified.current = true; refresh()
-                  }} />
-                {verified.current && <p className="success">保存確認が完了しました。ファイルを別の保存先にもコピーしておいてください。</p>}
-                <h3>3. 次の参加者を準備する</h3>
-                <p>iPhoneとPCを次の参加者用に切り替えます。保存済みのファイルと端末内の過去記録は残ります。</p>
-                {nextParticipantBlockers.length > 0 && <div className="notice" role="status">
-                  <p>次の参加者へ進むために必要な操作：</p>
-                  <ul className="save-checklist">{nextParticipantBlockers.map((reason) => <li key={reason}>{reason}</li>)}</ul>
-                </div>}
-                <button className="primary" disabled={!canClear || !verified.current || (surveys.length > 0 && !csvExported)} onClick={clear}>保存確認を終えて、次の参加者へ</button>
+                <ol className="save-steps">
+                  <li className="save-step">
+                    <h3>実験データをPCに保存する</h3>
+                    <p>全記録には、センサー・観察・指示・課題・アンケートのすべてが含まれます。</p>
+                    <div className="controls">
+                      <button disabled={reading} onClick={download}>全記録をダウンロード（.json）</button>
+                      {surveys.length > 0 && <button disabled={reading} onClick={downloadQuestionnaires}>アンケート表をダウンロード（.csv）</button>}
+                    </div>
+                    <p><small>全記録の保存：{verified.current ? 'ファイル一致確認済み' : 'ファイル未確認'}{surveys.length > 0 && ` ／ アンケート表：${csvExported ? 'ボタン操作済み' : '未操作'}`}</small></p>
+                  </li>
+                  <SavedRecording key={collector.current?.metadata.sessionId} active={active}
+                    reading={reading} setReading={setReading} getRecords={outputRecords} onVerified={(saved) => {
+                      if (!collector.current?.matchesSnapshot(saved)) throw new Error('照合中に記録が更新されました。全記録をもう一度ダウンロードして、保存ファイルを確認してください。')
+                      verified.current = true; refresh()
+                    }} />
+                  <li className="save-step">
+                    <h3>次の参加者を準備する</h3>
+                    <p>iPhoneとPCを次の参加者用に切り替えます。保存済みの記録は残ります。</p>
+                    {verified.current && <p className="success">保存確認済みです。ファイルを別の保存先にもコピーしておいてください。</p>}
+                    {nextParticipantBlockers.length > 0 && <div className="notice callout" role="status">
+                      <p>次の参加者へ進むために必要な操作</p>
+                      <ul className="save-checklist">{nextParticipantBlockers.map((reason) => <li key={reason}>{reason}</li>)}</ul>
+                    </div>}
+                    <button className="primary" disabled={!canClear || !verified.current || (surveys.length > 0 && !csvExported)} onClick={clear}>次の参加者へ</button>
+                  </li>
+                </ol>
               </>}
           </>}
         </>}

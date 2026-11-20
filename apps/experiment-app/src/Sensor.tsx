@@ -502,8 +502,9 @@ export default function Sensor({ identity }: { identity: Identity }) {
     setStatus(error.current || '合図音を試聴しました。音量を確認してください。')
     send(snapshot())
   }
-  const audioControls = <div className="notice">
-      <p>合図音：{audioReady ? '準備済み' : '未準備'}。切替は短い音、終了は長い音です。音に直接反応せず、実験者の指示に従ってください。</p>
+  const audioControls = <div className="audio-check">
+      <p><strong>合図音</strong> <span className={audioReady ? 'success' : 'notice'}>{audioReady ? '準備済み' : '未準備'}</span></p>
+      <p>切替は短い音、終了は長い音です。音に直接反応せず、実験者の指示に従ってください。</p>
       <button onClick={() => void prepareAudio()}>合図音を準備・試聴</button>
       <p><small>貸出前に音量を確認してください。画面は開いたままにします。</small></p>
       {error.current && <p className="error" role="alert">{error.current}</p>}
@@ -524,7 +525,6 @@ export default function Sensor({ identity }: { identity: Identity }) {
       onPracticeComplete={() => void localAction(closePractice)} onNext={() => void nextOnPhone()}
       onReconnect={retryConnection} onResume={() => void continuePreparation()} onRestart={() => void restartOnPhone()}
       onConfirmMovement={(input) => void confirmMovementOnPhone(input)} onStop={stopOnPhone} />}
-    {!phoneFlow && (!taskRun || taskRun.id === dismissedPracticeId) && !survey && audioControls}
     {displaySurvey && survey && <QuestionnaireScreen key={survey.id} run={survey} onPresent={presentSurvey}
       error={storage.error || error.current} pending={localPending} onStop={phoneFlow ? stopOnPhone : undefined}
       onAnswer={(id, item, value) => { questionnaires.current.answer(id, item, value, performance.now()); renderSurvey(); report() }}
@@ -539,12 +539,13 @@ export default function Sensor({ identity }: { identity: Identity }) {
       onAnswer={(value) => { trial.current?.answer(value, performance.now()); renderTask(); report(); void storage.flush() }}
       onTap={(x, y, action) => { trial.current?.tap(performance.now(), x, y, action) }}
       onStop={stopOnPhone} />}
-    {!phoneFlow && !survey && (!taskRun || taskRun.id === dismissedPracticeId) && <>
+    {!phoneFlow && !survey && (!taskRun || taskRun.id === dismissedPracticeId) && <section className="phone-setup">
       <PhonePreparation connected={connected && controller} storageReady={storage.ready} storageError={storage.error}
         sensorReady={enabled.current && events.current.valid > 0 && !document.hidden} pending={pending}
         recording={recorder.current?.active ?? false} stopped={!!recorder.current?.completion} recovered={!!recovered.current}
         practiceReady={practiceAvailable()} practiceFinished={dismissedPracticeId !== null || !!continuation.current?.tasks.some((t) => t.purpose === 'practice' && t.phase === 'complete')} resuming={!!continuation.current}
         onEnable={() => void enable()} onPractice={startPractice} />
+      {audioControls}
       {recoveryMessage && <p className="notice">{recoveryMessage}</p>}
       {storage.error && <p className="error" role="alert">{storage.error}</p>}
       {error.current && <p className="error" role="alert">{error.current}</p>}
@@ -557,6 +558,6 @@ export default function Sensor({ identity }: { identity: Identity }) {
       </details>
       <p><small>画面を開いたままにし、再読み込みしないでください。</small></p>
       <button className="stop-recording" onClick={() => { finish('manual'); send(snapshot()) }}>緊急停止</button>
-    </>}
+    </section>}
   </section>
 }

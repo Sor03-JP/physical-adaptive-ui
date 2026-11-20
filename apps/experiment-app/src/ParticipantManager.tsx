@@ -39,17 +39,23 @@ export default function ParticipantManager({ participant, selected, onSelect, lo
   const retryIntent = management.retries.find((r) => r.originalRunId === originalId)
   const retried = management.retries.some((r) => r.retryRunId === originalId) || (retryIntent !== undefined && tasks.some((t) => t.id === retryIntent.retryRunId))
   const describe = (mode: 'normal' | 'automatic', set: string) => `${mode === 'normal' ? '固定UI' : '自動適応UI'}・${set}`
-  return <section>
-    <h2>{variant === 'setup' ? '参加者を選択' : '参加者・実験の進行管理'}</h2>
+  return <section className={variant === 'setup' ? 'participant-setup' : undefined}>
+    {variant === 'setup' ? <h3>参加者を選択</h3> : <h2>参加者・実験の進行管理</h2>}
     {variant === 'setup' && <>
-    <p>開始前に参加者IDを選びます。氏名は記録しません。割当は保存後に固定し、人数が10名以外の場合は割当方針を再確認してください。</p>
-    {!roster && <button disabled={locked} onClick={() => void generateRoster()}>10名分の割当表を作成・保存</button>}
-    <label>参加者ID <select disabled={locked} value={current?.participantId ?? ''} onChange={(event) => {
-      const id = event.currentTarget.value
-      onSelect(id === 'test01' ? { participantId: id, group: 'G1', rosterId: 'rehearsal' } : roster?.entries.find((p) => p.participantId === id) ?? null)
-    }}><option value="">選択してください</option><option value="test01">test01（動作確認用）</option>
-      {roster?.entries.map((entry) => <option key={entry.participantId} value={entry.participantId}>{entry.participantId} ／ {entry.group}</option>)}
-    </select></label>
+    <div className="participant-form">
+      <label className="experiment-field">
+        <span>参加者ID</span>
+        <select name="participantId" autoComplete="off" disabled={locked} value={current?.participantId ?? ''} onChange={(event) => {
+          const id = event.currentTarget.value
+          onSelect(id === 'test01' ? { participantId: id, group: 'G1', rosterId: 'rehearsal' } : roster?.entries.find((p) => p.participantId === id) ?? null)
+        }}>
+          <option value="">選択してください</option><option value="test01">test01（動作確認用）</option>
+          {roster?.entries.map((entry) => <option key={entry.participantId} value={entry.participantId}>{entry.participantId} ／ {entry.group}</option>)}
+        </select>
+      </label>
+      {!roster && <button disabled={locked} onClick={() => void generateRoster()}>10名分の割当表を作成・保存</button>}
+    </div>
+    <p><small>氏名は記録しません。割当は保存後に固定します。参加者が10名以外の場合は割当方針を再確認してください。</small></p>
     </>}
     {roster && <details><summary>保存済みの割当表</summary><ol>{roster.entries.map((p) => <li key={p.participantId}>{p.participantId}：{assignments[p.group].map((b) => describe(b.mode, b.set)).join(' → ')}</li>)}</ol>
       <button onClick={() => downloadText(JSON.stringify(roster, null, 2), `participant-roster-${roster.id}.json`, 'application/json')}>割当表をJSON出力</button>
