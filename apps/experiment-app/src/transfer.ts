@@ -16,6 +16,9 @@ import { summarizeMotionWindow } from '@physical-adaptive/device-motion'
 import { estimateSchema, estimationConfigSchema, hasValidEstimateTimes } from './estimation'
 import { taskRunSchema, previousBriefingTaskRunSchema, previousTaskRunSchema, previousSelectionTaskRunSchema, previousAdaptiveTaskRunSchema, legacyTaskRunSchema } from './task-schema'
 import type { TaskRun } from './task-schema'
+import { phoneFlowSchema, phoneNextStep, validPhoneFlow } from './phone-flow'
+import type { PhoneFlow } from './phone-flow'
+import { phoneArchiveDigest } from './phone-checkpoint'
 
 const receiptSchema = z.strictObject({
   startIndex: z.int().nonnegative(), count: z.int().positive(),
@@ -51,7 +54,8 @@ const version11TransferBase = version10TransferBase.extend({ version: z.literal(
 })
 const version12TransferBase = version11TransferBase.extend({ version: z.literal(12), observationProtocol: observationProtocolSchema.nullable(), continuation: continuationSchema.optional() })
 const version13TransferBase = version12TransferBase.extend({ version: z.literal(13), movementConfirmations: z.array(movementConfirmationSchema).max(1000) })
-const currentTransferBase = version13TransferBase.extend({ version: z.literal(14) })
+const version14TransferBase = version13TransferBase.extend({ version: z.literal(14) })
+const currentTransferBase = version14TransferBase.extend({ version: z.literal(15), phoneFlow: phoneFlowSchema.optional() })
 const version6TransferBase = version7TransferBase.extend({
   version: z.literal(6), tasks: z.array(previousAdaptiveTaskRunSchema).max(100),
 })
@@ -61,7 +65,10 @@ const readableVersion5Base = version7TransferBase.extend({
 const legacyTransferBase = version2TransferBase.extend({
   version: z.literal(1), samples: z.array(legacySampleSchema).max(MAX_SAMPLES),
 })
-function validateTransfer(value: z.infer<typeof currentTransferBase> | z.infer<typeof version13TransferBase> | z.infer<typeof version12TransferBase> | z.infer<typeof version11TransferBase> | z.infer<typeof version10TransferBase> | z.infer<typeof version9TransferBase> | z.infer<typeof version8TransferBase> | z.infer<typeof version7TransferBase> | z.infer<typeof version6TransferBase> | z.infer<typeof readableVersion5Base> | z.infer<typeof version4TransferBase> | z.infer<typeof version3TransferBase> | z.infer<typeof version2TransferBase> | z.infer<typeof legacyTransferBase>, context: z.RefinementCtx) {
+function validateTransfer(value: z.infer<typeof currentTransferBase> | z.infer<typeof version14TransferBase> | z.infer<typeof version13TransferBase> | z.infer<typeof version12TransferBase> | z.infer<typeof version11TransferBase> | z.infer<typeof version10TransferBase> | z.infer<typeof version9TransferBase> | z.infer<typeof version8TransferBase> | z.infer<typeof version7TransferBase> | z.infer<typeof version6TransferBase> | z.infer<typeof readableVersion5Base> | z.infer<typeof version4TransferBase> | z.infer<typeof version3TransferBase> | z.infer<typeof version2TransferBase> | z.infer<typeof legacyTransferBase>, context: z.RefinementCtx) {
+  if ('phoneFlow' in value && value.phoneFlow && (!value.management.participant || !validPhoneFlow(value.phoneFlow, value.metadata.sessionId, value.tasks, value.metadata.startedAtMs, value.completion?.endedAtMs)
+    || (value.phoneFlow.stage === 'transfer' && (!value.completion || phoneNextStep(value.management.participant, value.tasks, value.questionnaires, value.phoneFlow).kind !== 'done'))))
+    context.addIssue({ code: 'custom', message: '端末内の進行記録と課題・参加者が一致しません。' })
   if (!hasValidSampleTimes(value.samples, value.metadata.startedAtMs, value.completion?.endedAtMs)) {
     context.addIssue({ code: 'custom', message: 'iPhone側の時刻が不整合です。' })
   }
@@ -115,7 +122,7 @@ function validateTransfer(value: z.infer<typeof currentTransferBase> | z.infer<t
   }
 }
 const transferSchema = currentTransferBase.superRefine(validateTransfer)
-const readableTransferSchema = z.discriminatedUnion('version', [currentTransferBase, version13TransferBase, version12TransferBase, version11TransferBase, version10TransferBase, version9TransferBase, version8TransferBase, version7TransferBase, version6TransferBase, readableVersion5Base, version4TransferBase, version3TransferBase, version2TransferBase, legacyTransferBase])
+const readableTransferSchema = z.discriminatedUnion('version', [currentTransferBase, version14TransferBase, version13TransferBase, version12TransferBase, version11TransferBase, version10TransferBase, version9TransferBase, version8TransferBase, version7TransferBase, version6TransferBase, readableVersion5Base, version4TransferBase, version3TransferBase, version2TransferBase, legacyTransferBase])
   .superRefine(validateTransfer)
 export type Transfer = z.infer<typeof transferSchema>
 export type ReadableTransfer = z.infer<typeof readableTransferSchema>
@@ -123,10 +130,10 @@ export type ReadableTransfer = z.infer<typeof readableTransferSchema>
 export function checkpointTransfer(saved: LoadedCheckpoint): Transfer {
   const header = saved.header as Transfer
   const data = parseTransfer({ ...header, samples: saved.samples, inference: { ...header.inference, estimates: saved.estimates } })
-  if (data.version === 11) return { ...data, version: 14, observationProtocol: null, movementConfirmations: [] }
-  if (data.version === 12) return { ...data, version: 14, movementConfirmations: [] }
-  if (data.version === 13) return { ...data, version: 14 }
-  if (data.version !== 14) throw new Error('保存データの復旧形式が一致しません。')
+  if (data.version === 11) return { ...data, version: 15, observationProtocol: null, movementConfirmations: [] }
+  if (data.version === 12) return { ...data, version: 15, movementConfirmations: [] }
+  if (data.version === 13 || data.version === 14) return { ...data, version: 15 }
+  if (data.version !== 15) throw new Error('保存データの復旧形式が一致しません。')
   return data
 }
 
@@ -146,11 +153,22 @@ export class TransferCollector {
   management: Management = emptyManagement()
   recovery: Transfer['recovery'] = null
   continuation: Transfer['continuation']
+  phoneFlow: PhoneFlow | undefined
   observationProtocol: Transfer['observationProtocol'] = structuredClone(currentObservationProtocol)
 
   private movementConfirmations: MovementConfirmation[] = []
   get movementConfirmationHistory(): MovementConfirmation[] { return structuredClone(this.movementConfirmations) }
-  get unconfirmedTaskRuns(): TaskRun[] { return pendingMovementConfirmations(this.taskRuns, this.movementConfirmations) }
+  get unconfirmedTaskRuns(): TaskRun[] { return pendingMovementConfirmations(this.taskRuns, [...this.movementConfirmations, ...(this.phoneFlow?.confirmations ?? [])]) }
+  updatePhoneFlow(flow: PhoneFlow | undefined): boolean {
+    if (!flow || !validPhoneFlow(flow, this.metadata.sessionId, this.taskRuns)) return false
+    const next = phoneFlowSchema.parse(flow), previous = this.phoneFlow
+    if (previous && (['consent', 'tutorial', 'experiment', 'transfer'].indexOf(next.stage) < ['consent', 'tutorial', 'experiment', 'transfer'].indexOf(previous.stage)
+      || JSON.stringify(next.confirmations.slice(0, previous.confirmations.length)) !== JSON.stringify(previous.confirmations)
+      || (previous.consentedAtMs !== null && next.consentedAtMs !== previous.consentedAtMs))) return false
+    if (JSON.stringify(previous) === JSON.stringify(next)) return false
+    this.phoneFlow = structuredClone(next)
+    return true
+  }
   confirmMovement(input: MovementConfirmationInput, confirmedAtControllerMs: number) {
     const entry = movementConfirmationSchema.parse({ ...input, confirmedAtControllerMs })
     if (!validMovementConfirmation(entry, this.taskRuns)) throw new Error('回答が終了した本番課題を選んでください。')
@@ -176,6 +194,7 @@ export class TransferCollector {
     data.tasks.forEach((t) => collector.tasks.set(t.id, t)); collector.questionnaires = data.questionnaires
     collector.movementConfirmations = structuredClone(data.movementConfirmations)
     collector.management = data.management; collector.recovery = data.recovery; collector.observationProtocol = data.observationProtocol; collector.continuation = data.continuation
+    collector.phoneFlow = data.phoneFlow
     const resumedAtMs = now + currentTimeOriginMs - data.controllerTimeOriginMs
     collector.research.restore(data.research)
     collector.management.controllerRestarts.push({ timeOriginMs: currentTimeOriginMs, controllerAtMs: resumedAtMs })
@@ -283,7 +302,8 @@ export class TransferCollector {
   private snapshot(includeSamples: boolean): Transfer {
     return {
       ...(this.continuation ? { continuation: structuredClone(this.continuation) } : {}),
-      format: 'physical-adaptive-motion-transfer', version: 14, movementConfirmations: this.movementConfirmationHistory, observationProtocol: structuredClone(this.observationProtocol), management: structuredClone(this.management), recovery: this.recovery,
+      ...(this.phoneFlow ? { phoneFlow: structuredClone(this.phoneFlow) } : {}),
+      format: 'physical-adaptive-motion-transfer', version: 15, movementConfirmations: this.movementConfirmationHistory, observationProtocol: structuredClone(this.observationProtocol), management: structuredClone(this.management), recovery: this.recovery,
       metadata: this.metadata, completion: this.completion, samples: includeSamples ? this.samples.slice() : [],
       controllerTimeOriginMs: this.controllerTimeOriginMs, expectedCount: this.expectedCount,
       complete: this.complete, receipts: this.receipts.slice(),
@@ -295,6 +315,15 @@ export class TransferCollector {
   matchesSnapshot(saved: ReadableTransfer): boolean { return JSON.stringify(this.export()) === JSON.stringify(saved) }
 }
 
+export async function phoneTransferDigest(value: Transfer): Promise<string> {
+  const data = transferSchema.parse(value)
+  if (!data.complete || !data.completion || !data.phoneFlow) throw new Error('端末データの全件受信を待っています。')
+  return phoneArchiveDigest({ format: 'physical-adaptive-phone-checkpoint', version: 1,
+    metadata: data.metadata, participant: data.management.participant, completion: data.completion,
+    config: data.inference.config, samples: data.samples, estimates: data.inference.estimates,
+    tasks: data.tasks, questionnaires: data.questionnaires, phoneFlow: data.phoneFlow,
+    ...(data.continuation ? { continuation: data.continuation } : {}), savedThroughMs: data.completion.endedAtMs })
+}
 export function parseTransfer(value: unknown): ReadableTransfer { return readableTransferSchema.parse(value) }
 export function readTransfer(text: string): ReadableTransfer { return parseTransfer(JSON.parse(text)) }
 export function writeTransfer(value: ReadableTransfer): string { return JSON.stringify(parseTransfer(value)) }

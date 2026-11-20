@@ -25,15 +25,19 @@ it('keeps v11 files unchanged and restores old checkpoints without assuming the 
   const disk = { ...saved(c.checkpoint(0, 0)), header: old }
   const before = structuredClone(disk)
   const restored = TransferCollector.restore(disk, 6000, 20).export()
-  expect(restored.version).toBe(14)
+  expect(restored.version).toBe(15)
   expect(restored.observationProtocol).toBeNull()
   expect(restored.research.events).toEqual(old.research.events)
   expect(disk).toEqual(before)
   const previousCheckpoint = { ...saved(c.checkpoint(0, 0)), header: { ...current, version: 13 } }
   const resumed = TransferCollector.restore(previousCheckpoint, 6000, 20).export()
-  expect(resumed.version).toBe(14)
+  expect(resumed.version).toBe(15)
   expect(resumed.research).toEqual(current.research)
   expect(resumed.observationProtocol).toEqual(current.observationProtocol)
+  const version14 = { ...current, version: 14 }
+  expect(readTransfer(JSON.stringify(version14))).toEqual(version14)
+  expect(JSON.parse(writeTransfer(readTransfer(JSON.stringify(version14))))).toEqual(version14)
+  expect(TransferCollector.restore({ ...saved(c.checkpoint(0, 0)), header: version14 }, 6000, 20).export().version).toBe(15)
 })
 
 it('restores PC incremental checkpoints without changing raw times, and receives only missing batches', () => {
