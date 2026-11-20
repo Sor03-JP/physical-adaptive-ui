@@ -21,70 +21,84 @@ export default function PhoneFlowScreen({ flow, step, tasks, participantId, conn
   const transfer = flow.stage === 'transfer'
   const needsRecovery = recovered && !transfer
   const restart = <button disabled={pending} onClick={onRestart}>実験者用：記録を残して最初からやり直す</button>
-  return <section className="phone-flow-screen" aria-label="iPhoneの実験進行">
-    <p>参加者：{participantId} ／ {flow.stage === 'consent' ? '説明・同意' : flow.stage === 'tutorial' ? 'チュートリアル' : transfer ? '終了・データ転送' : '本番'}</p>
-    {error && <p className="error" role="alert">{error}</p>}
-    {needsRecovery || (stopped && !transfer) ? <>
-      <h1>計測が中断しました</h1><p>保存できた記録は保持しています。実験者にお知らせください。この記録を回収するにはPCとの接続を戻してください。</p>
-      <button disabled={pending} onClick={onReconnect}>PCとの接続を確認する</button>{restart}
-    </> : interrupted ? <>
-      <h1>PCとの接続を確認してください</h1>
-      <p>説明・練習中に接続が切れたため、進行を止めています。同じWi-Fiに接続し、この画面を閉じずにお待ちください。</p>
-      <p role="status">{connected ? 'PCとの同期を確認できました。続け方を選んでください。' : 'PCとの同期を確認中です。'}</p>
-      <button disabled={pending} onClick={onReconnect}>再接続を確認</button>
-      <button className="primary" disabled={!connected || pending} onClick={onResume}>続きから始める</button>
-      <button disabled={!connected || pending} onClick={onRestart}>最初からやる（リセット）</button>
-      <p><small>計測途中で止まった練習問題は、元の練習記録を残して、その問題の最初から行います。</small></p>
-    </> : flow.stage === 'consent' ? <>
-      <h1>実験の説明・注意事項</h1>
-      <p>画面の想定現在時刻と目的地を見て、目的地行きで次に発車する電車をタップし、その電車の到着時刻を確認してください。</p>
-      <p>問題文を理解してから候補を表示します。15秒後に情報が消え、実験者が停止を確認してから、到着時刻を4桁で回答します。回答は10秒以内です。分からない場合は「分からない」を選んでください。</p>
-      <p>早く選んでも、動作は実験者の指示に従って続けてください。短い音は切替、長い音は表示終了の合図です。音だけで動かず、実験者の指示を聞いてください。</p>
-      <p>安全を優先し、無理に操作する必要はありません。危険や体調不良を感じたとき、参加をやめたいときは実験者に伝え、いつでも中止できます。</p>
-      <p>この画面を表示したままにし、画面のロックや再読み込みはしないでください。</p>
-      {!sensorReady && <><p>センサー・合図音を準備してください。</p><button disabled={pending} onClick={onPrepare}>センサー利用を許可・準備</button></>}
-      {!connected && <p role="status">PCとの最初の同期を確認しています。</p>}
-      <label><input type="checkbox" checked={agreed} onChange={(event) => setAgreed(event.currentTarget.checked)} />説明を理解し、参加に同意します。</label>
-      <button className="primary" disabled={!agreed || !connected || !sensorReady || pending} onClick={onAccept}>同意してチュートリアルへ</button>
-    </> : flow.stage === 'tutorial' ? <>
-      <h1>チュートリアル {flow.tutorialPage + 1}／3</h1>
-      {flow.tutorialPage === 0 ? <>
-        <p>問題文の時刻と目的地を読み、電車の行をタップして選びます。選び直しもできます。</p>
-        <p>情報が消えたら、安全に立ち止まってください。実験者が停止を確認した後、到着時刻を4桁で回答します。例えば09:30は0930です。</p>
-        <button className="primary" disabled={pending || !connected} onClick={onTutorialNext}>操作方法を確認した</button>
-      </> : flow.tutorialPage === 1 ? <>
-        {audioControls}<p>実験者と一緒に音量と短い音・長い音を確認してください。</p>
-        <button className="primary" disabled={pending || !connected} onClick={onTutorialNext}>合図音を確認した</button>
+  return <section className="phone-flow-screen mobile-screen" aria-label="iPhoneの実験進行">
+    <div className="mobile-content">
+      <header className="mobile-meta">
+        <span>{flow.stage === 'consent' ? '説明・同意' : flow.stage === 'tutorial' ? 'チュートリアル' : transfer ? '終了・データ転送' : '本番'}</span>
+        {participantId && <span>参加者 <span translate="no">{participantId}</span></span>}
+      </header>
+      {error && <p className="error callout" role="alert">{error}</p>}
+      {needsRecovery || (stopped && !transfer) ? <>
+        <h1>計測が中断しました</h1><p>保存できた記録は保持しています。実験者にお知らせください。この記録を回収するにはPCとの接続を戻してください。</p>
+        <button disabled={pending} onClick={onReconnect}>PCとの接続を確認する</button>{restart}
+      </> : interrupted ? <>
+        <h1>PCとの接続を確認してください</h1>
+        <p>説明・練習中に接続が切れたため、進行を止めています。同じWi-Fiに接続し、この画面を閉じずにお待ちください。</p>
+        <p role="status">{connected ? 'PCとの同期を確認できました。続け方を選んでください。' : 'PCとの同期を確認中です。'}</p>
+        <div className="mobile-actions">
+          <button className="primary" disabled={!connected || pending} onClick={onResume}>続きから始める</button>
+          <button disabled={pending} onClick={onReconnect}>再接続を確認</button>
+          <button disabled={!connected || pending} onClick={onRestart}>最初からやる（リセット）</button>
+        </div>
+        <p><small>計測途中で止まった練習問題は、元の練習記録を残して、その問題の最初から行います。</small></p>
+      </> : flow.stage === 'consent' ? <>
+        <h1>実験の説明・注意事項</h1>
+        <dl className="consent-guide">
+          <div><dt>電車を選ぶ</dt><dd>想定現在時刻と目的地を見て、目的地行きで次に発車する電車をタップし、到着時刻を確認してください。</dd></div>
+          <div><dt>立ち止まって回答する</dt><dd>問題文を理解してから候補を表示します。15秒後に情報が消えます。実験者が停止を確認したら、到着時刻を4桁で10秒以内に回答してください。不明なら「分からない」を選んでください。</dd></div>
+          <div><dt>実験者の指示に従う</dt><dd>早く選んでも、指示された動作を続けます。短い音は切替、長い音は表示終了の合図です。音だけで動かず、実験者の指示を聞いてください。</dd></div>
+        </dl>
+        <section className="callout notice">
+          <h2>安全を優先してください</h2>
+          <p>危険や体調不良を感じたとき、参加をやめたいときは実験者に伝え、いつでも中止できます。無理に操作する必要はありません。</p>
+        </section>
+        <p><small>この画面を表示したままにし、画面のロックや再読み込みはしないでください。</small></p>
+        {!sensorReady && <><p>センサー・合図音を準備してください。</p><button disabled={pending} onClick={onPrepare}>センサー利用を許可・準備</button></>}
+        {!connected && <p role="status">PCとの最初の同期を確認しています。</p>}
+        <div className="mobile-actions consent-actions">
+          <label className="consent-choice"><input type="checkbox" name="experimentConsent" checked={agreed} onChange={(event) => setAgreed(event.currentTarget.checked)} />説明を理解し、参加に同意します。</label>
+          <button className="primary" disabled={!agreed || !connected || !sensorReady || pending} onClick={onAccept}>同意してチュートリアルへ</button>
+        </div>
+      </> : flow.stage === 'tutorial' ? <>
+        <h1>チュートリアル {flow.tutorialPage + 1}／3</h1>
+        {flow.tutorialPage === 0 ? <>
+          <p>問題文の時刻と目的地を読み、電車の行をタップして選びます。選び直しもできます。</p>
+          <p>情報が消えたら、安全に立ち止まってください。実験者が停止を確認した後、到着時刻を4桁で回答します。例えば09:30は0930です。</p>
+          <button className="primary" disabled={pending || !connected} onClick={onTutorialNext}>操作方法を確認した</button>
+        </> : flow.tutorialPage === 1 ? <>
+          {audioControls}<p>実験者と一緒に音量と短い音・長い音を確認してください。</p>
+          <button className="primary" disabled={pending || !connected} onClick={onTutorialNext}>合図音を確認した</button>
+        </> : <>
+          <p>本番とは異なる駅・時刻の問題で、選択から停止後の回答まで練習します。身体の動きは実験者の指示に従ってください。</p>
+          <button className="primary" disabled={pending || !connected} onClick={practiceComplete ? onPracticeComplete : onPractice}>
+            {practiceComplete ? '練習を終了して本番へ' : '練習問題を表示'}
+          </button>
+        </>}
+      </> : transfer ? <>
+        <h1>{transferState === 'verified' ? 'PCへの転送・内容確認が完了しました' : 'PCへ実験データを転送します'}</h1>
+        <p>実験とアンケートの記録は、このiPhoneに保存しています。Macと同じWi-Fiに戻り、同じ接続コードのPC画面を開いてください。画面は更新せず、このままお待ちください。</p>
+        <p role="status" className={transferState === 'verified' ? 'callout success' : 'callout'}>{transferState === 'verified' ? '実験者がPCでJSON・アンケートCSVを保存し、保存ファイルを確認します。案内をお待ちください。'
+          : transferState === 'checking' ? '端末内の保存データを検証しています。'
+          : transferState === 'mismatch' ? 'PCとiPhoneの内容が一致しません。再接続して確認するか、元の記録を残してやり直してください。'
+          : transferState === 'error' ? '保存データの検証が完了していません。上のエラーを確認し、再接続・再確認するか、元の記録を残してやり直してください。'
+          : '接続が戻ると自動転送し、PCとiPhoneの記録内容を照合します。完了するまで端末の記録は残します。'}</p>
+        {transferState !== 'verified' && <><button className="primary" disabled={pending} onClick={onReconnect}>再接続して転送を確認</button>{restart}</>}
       </> : <>
-        <p>本番とは異なる駅・時刻の問題で、選択から停止後の回答まで練習します。身体の動きは実験者の指示に従ってください。</p>
-        <button className="primary" disabled={pending || !connected} onClick={practiceComplete ? onPracticeComplete : onPractice}>
-          {practiceComplete ? '練習を終了して本番へ' : '練習問題を表示'}
-        </button>
+        <h1>本番の実験</h1>
+        <p>ここからはPCとの通信が切れても、iPhoneで実験とアンケートを続けられます。音を合図に、実験者が動作を指示します。</p>
+        {step?.kind === 'confirmation' ? <>
+          <p>実験者用：直前の課題の動作を確認してください。</p>
+        </> : step?.kind === 'task' ? <>
+          <p>次は課題{step.taskId.slice(1)}／3です。開始前に実験者が{step.taskId.endsWith('3') ? '歩行' : '静止'}を確認します。</p>
+          <button className="primary" disabled={pending} onClick={onNext}>次の問題文を表示</button>
+        </> : step?.kind === 'survey' ? <>
+          <p>立ち止まった状態で、{step.target === 'final' ? '最後の比較アンケート' : '直前の3課題のアンケート'}に回答します。</p>
+          <button className="primary" disabled={pending} onClick={onNext}>アンケートへ</button>
+        </> : <p role="status">次の操作を準備しています。</p>}
+        <MovementConfirmationPanel tasks={tasks} history={flow.confirmations} disabled={pending} onSave={onConfirmMovement} />
       </>}
-    </> : transfer ? <>
-      <h1>{transferState === 'verified' ? 'PCへの転送・内容確認が完了しました' : 'PCへ実験データを転送します'}</h1>
-      <p>実験とアンケートの記録は、このiPhoneに保存しています。Macと同じWi-Fiに戻り、同じ接続コードのPC画面を開いてください。画面は更新せず、このままお待ちください。</p>
-      <p role="status">{transferState === 'verified' ? '実験者がPCでJSON・アンケートCSVを保存し、保存ファイルを確認します。案内をお待ちください。'
-        : transferState === 'checking' ? '端末内の保存データを検証しています。'
-        : transferState === 'mismatch' ? 'PCとiPhoneの内容が一致しません。再接続して確認するか、元の記録を残してやり直してください。'
-        : transferState === 'error' ? '保存データの検証が完了していません。上のエラーを確認し、再接続・再確認するか、元の記録を残してやり直してください。'
-        : '接続が戻ると自動転送し、PCとiPhoneの記録内容を照合します。完了するまで端末の記録は残します。'}</p>
-      {transferState !== 'verified' && <><button className="primary" disabled={pending} onClick={onReconnect}>再接続して転送を確認</button>{restart}</>}
-    </> : <>
-      <h1>本番の実験</h1>
-      <p>ここからはPCとの通信が切れても、iPhoneで実験とアンケートを続けられます。音を合図に、実験者が動作を指示します。</p>
-      {step?.kind === 'confirmation' ? <>
-        <p>実験者用：直前の課題の動作を確認してください。</p>
-      </> : step?.kind === 'task' ? <>
-        <p>次は課題{step.taskId.slice(1)}／3です。開始前に実験者が{step.taskId.endsWith('3') ? '歩行' : '静止'}を確認します。</p>
-        <button className="primary" disabled={pending} onClick={onNext}>次の問題文を表示</button>
-      </> : step?.kind === 'survey' ? <>
-        <p>立ち止まった状態で、{step.target === 'final' ? '最後の比較アンケート' : '直前の3課題のアンケート'}に回答します。</p>
-        <button className="primary" disabled={pending} onClick={onNext}>アンケートへ</button>
-      </> : <p role="status">次の操作を準備しています。</p>}
-      <MovementConfirmationPanel tasks={tasks} history={flow.confirmations} disabled={pending} onSave={onConfirmMovement} />
-    </>}
-    {pending && <p role="status">保存・確認中です。この画面を開いたままお待ちください。</p>}
-    {!stopped && !transfer && <footer><button onClick={onStop}>実験を中止</button></footer>}
+      {pending && <p role="status">保存・確認中です。この画面を開いたままお待ちください。</p>}
+      {!stopped && !transfer && <footer className="mobile-footer"><button className="stop-recording" onClick={onStop}>実験を中止</button></footer>}
+    </div>
   </section>
 }

@@ -135,13 +135,65 @@ summary { min-height: 48px; padding: 12px 0; font-weight: 650; cursor: pointer; 
   background: var(--surface);
   min-width: 0;
 }
+.phone-stage { color: var(--muted); font-size: 13px; font-weight: 650; margin: 0 0 6px; }
+.phone-next .primary, .phone-flow-screen .primary, .questionnaire-screen form > .primary { width: 100%; }
+.phone-details { margin-top: 16px; }
+.audio-check { margin: 20px 0; padding: 16px 0; border-block: 1px solid var(--line); }
+.audio-check > :first-child, .audio-check > :last-child { margin-block: 0; }
+.audio-check button + p { margin-top: 8px; }
+.audio-check strong { margin-inline-end: 6px; }
 
-body:has(.task-screen) { overflow: hidden; }
+body:has(.task-screen, .mobile-screen) { overflow: hidden; }
+.task-screen, .mobile-screen {
+  position: fixed;
+  inset: 0;
+  height: 100dvh;
+  z-index: 10;
+  overflow: auto;
+  overscroll-behavior: contain;
+  scroll-padding-block: 12px;
+  background: var(--surface);
+  padding: max(20px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(24px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
+  font-size: 16px;
+}
+.mobile-content { max-width: 520px; margin-inline: auto; }
+.mobile-meta {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 4px 16px;
+  margin: 0 0 18px;
+  padding: 0 0 12px;
+  border-bottom: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 13px;
+}
+.mobile-meta > :first-child { color: var(--ink); font-weight: 700; }
+.mobile-actions { display: grid; gap: 10px; margin: 16px 0; }
+.mobile-footer { margin-top: 20px; padding-top: 12px; border-top: 1px solid var(--line); }
+.phone-flow-screen h1, .questionnaire-screen h1 { font-size: clamp(22px, 5vw, 28px); }
+.phone-flow-screen .mobile-content > button + button { margin-block-start: 8px; }
+.consent-guide { margin: 16px 0; }
+.consent-guide > div { padding-block: 12px; border-bottom: 1px solid var(--line); }
+.consent-guide dt { margin-bottom: 4px; color: var(--ink); font-weight: 700; }
+.consent-guide dd { margin: 0; color: var(--muted); }
+.phone-flow-screen .callout h2 { margin: 0 0 4px; font-size: 16px; }
+.phone-flow-screen .callout > p { margin: 0; }
+.consent-actions { margin-top: 20px; }
+.consent-choice {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  min-height: 48px;
+  padding: 10px 12px;
+  border: 1px solid var(--control-line);
+  border-radius: 8px;
+  cursor: pointer;
+}
+.consent-choice:has(input:checked) { background: var(--selected); border-color: var(--action); }
+
 .task-screen { position: fixed; inset: 0; height: 100dvh; box-sizing: border-box; z-index: 10; background: white; color: #172334; padding: max(16px, env(safe-area-inset-top)) 16px max(16px, env(safe-area-inset-bottom)); overflow: auto; overscroll-behavior: contain; font-size: 16px; }
-.phone-flow-screen { position: fixed; inset: 0; height: 100dvh; box-sizing: border-box; z-index: 25; background: white; color: #172334; padding: max(16px, env(safe-area-inset-top)) 16px max(32px, env(safe-area-inset-bottom)); overflow: auto; overscroll-behavior: contain; font-size: 16px; }
-body:has(.phone-flow-screen) { overflow: hidden; }
-.phone-flow-screen h1 { font-size: 22px; }
-.phone-flow-screen button { margin: 8px 8px 8px 0; }
 .task-screen h1 { font-size: 16px; line-height: 1.6; font-weight: 600; min-height: 52px; }
 .task-screen footer { margin-top: 12px; flex-shrink: 0; }
 .task-screen[data-phase="preparing"], .task-screen[data-phase="viewing"] { display: flex; flex-direction: column; overflow: hidden; }
@@ -169,12 +221,6 @@ body:has(.questionnaire-screen) { overflow: hidden; }
 .questionnaire-choices label { display: flex; align-items: center; gap: 6px; min-height: 48px; padding: 4px 8px; box-sizing: border-box; border: 1px solid #a4afbe; border-radius: 8px; }
 .questionnaire-choices label:has(input:checked) { background: #dceafa; border-color: #174f97; }
 .questionnaire-screen textarea { box-sizing: border-box; width: 100%; border: 1px solid #a4afbe; border-radius: 8px; padding: 10px; font: inherit; }
-
-.phone-next { border-top: 4px solid #174f97; padding-top: 12px; }
-.phone-next h2 { font-size: 24px; line-height: 1.5; }
-.phone-next .primary { width: 100%; margin: 12px 0; }
-.phone-stage { color: #526073; font-size: 14px; }
-.phone-details { border-top: 1px solid #d4dce5; margin-top: 24px; }
 
 .controller-page {
   max-width: 1120px;
