@@ -4,7 +4,7 @@ import type { CSSProperties, ReactNode } from 'react'
 import type { PresentationMetrics, RenderedTaskContext } from './adaptation'
 import type { TaskRun } from './tasks'
 
-export default function TransitTaskScreen({ run, onPresent, onAdvance, onSelectTrain, onAnswer, onTap, onStop, onPracticeBegin, onPracticeConfirm, onPracticeFinish, onConfirmStopped, audioControls }: {
+export default function TransitTaskScreen({ run, onPresent, onAdvance, onSelectTrain, onAnswer, onTap, onStop, onPracticeBegin, onPracticeConfirm, onPracticeFinish, onConfirmStopped, audioControls, onBegin, error = '', pending = false }: {
   run: TaskRun
   onPresent: (metrics: PresentationMetrics, rendered: RenderedTaskContext) => void
   onAdvance: () => void
@@ -16,6 +16,8 @@ export default function TransitTaskScreen({ run, onPresent, onAdvance, onSelectT
   onPracticeFinish?: () => void
   onConfirmStopped?: () => void
   audioControls?: ReactNode
+  onBegin?: () => void
+  error?: string; pending?: boolean
   onStop: () => void
 }) {
   const firstRow = useRef<HTMLButtonElement | null>(null)
@@ -51,6 +53,7 @@ export default function TransitTaskScreen({ run, onPresent, onAdvance, onSelectT
     const target = event.target instanceof Element ? event.target.closest('[data-task-action]') : null
     onTap(event.clientX, event.clientY, target?.getAttribute('data-task-action') ?? 'outside')
   }}>
+    {error && <p className="error" role="alert">{error}</p>}
     {briefingVisible || informationVisible ? <div className="task-information">
       <h1>{practice && '練習：'}{task.to}行きで次に発車する電車を選び、到着時刻を確認してください。</h1>
       <div className="task-context">
@@ -86,11 +89,15 @@ export default function TransitTaskScreen({ run, onPresent, onAdvance, onSelectT
       </div>
     </> : <>
       <h1>{run.phase === 'waiting-stop' ? '安全に立ち止まってください' : run.phase === 'aborted' ? '中止しました' : '回答を終了しました'}</h1>
-      <p>{run.phase === 'waiting-stop' ? practice ? '立ち止まってから、下の「立ち止まったので回答へ」を押してください。' : '実験者が停止を確認して、回答画面を表示します。通信が切れている場合は、実験者が下のボタンで進められます。参加者は案内をお待ちください。'
+      <p>{run.phase === 'waiting-stop' ? practice ? '立ち止まってから、下の「立ち止まったので回答へ」を押してください。' : onBegin ? '実験者が停止を確認し、下のボタンで回答画面を表示します。参加者は案内をお待ちください。' : '実験者が停止を確認して、回答画面を表示します。通信が切れている場合は、実験者が下のボタンで進められます。参加者は案内をお待ちください。'
         : run.phase === 'aborted' ? '操作をやめて、実験者にお知らせください。'
         : practice ? '下の「練習を閉じる」を押してください。' : 'この課題は終了です。次の問題やアンケートは実験者が表示します。このまま案内をお待ちください。'}</p>
     </>}
     {briefingVisible && audioControls}
+    {!practice && briefingVisible && onBegin && <>
+      <p>問題文を理解できたら実験者にお知らせください。実験者は開始時の{run.taskId.endsWith('3') ? '歩行' : '静止'}を確認してください。</p>
+      <button className="primary" data-task-action="phone-begin" disabled={pending || run.briefingShownAtMs === null} onClick={onBegin}>実験者の開始状態の確認を受けて開始</button>
+    </>}
     {practice && run.phase === 'briefing' && <>
       <p>行をタップすると選択でき、選び直せます。{run.timing.displayMs / 1000}秒後に情報が消えたら、安全に立ち止まってから到着時刻を4桁で回答します。身体の動きは実験者の指示に従ってください。</p>
       <button className="primary" data-task-action="practice-begin" disabled={run.briefingShownAtMs === null} onClick={onPracticeBegin}>理解したので練習を開始</button>

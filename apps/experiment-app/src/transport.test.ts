@@ -75,3 +75,14 @@ it('reconnects failed sends and does not reconnect after disposal', async () => 
   await vi.advanceTimersByTimeAsync(10000)
   expect(streams).toHaveLength(2)
 })
+
+it('manually reconnects using the same client and ignores requests after disposal', () => {
+  const connection = connectMeasurement({ role: 'sensor', room: 'a' }, callbacks())
+  streams[0].onopen!()
+  connection.reconnect()
+  expect(streams).toHaveLength(2)
+  expect(streams[1].url).toBe(streams[0].url)
+  expect(streams[0].close).toHaveBeenCalledOnce()
+  connection.close(); connection.reconnect()
+  expect(streams).toHaveLength(2)
+})

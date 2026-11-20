@@ -1,10 +1,10 @@
 import { useState } from 'react'
 import type { TaskRun } from './task-schema'
-import { latestMovementConfirmation, movementConfirmationSchema, movementSegments } from './movement-confirmation'
-import type { MovementConfirmation, MovementConfirmationInput } from './movement-confirmation'
+import { latestMovementConfirmation, movementConfirmationInputSchema, movementSegments } from './movement-confirmation'
+import type { MovementConfirmationInput } from './movement-confirmation'
 
 export default function MovementConfirmationPanel({ tasks, history, disabled, onSave }: {
-  tasks: TaskRun[]; history: MovementConfirmation[]; disabled: boolean
+  tasks: TaskRun[]; history: MovementConfirmationInput[]; disabled: boolean
   onSave: (input: MovementConfirmationInput) => void
 }) {
   const completed = tasks.filter((task) => task.purpose === 'main' && task.phase === 'complete')
@@ -23,14 +23,14 @@ export default function MovementConfirmationPanel({ tasks, history, disabled, on
 }
 
 function ConfirmationForm({ task, latest, disabled, onSave }: {
-  task: TaskRun; latest?: MovementConfirmation; disabled: boolean; onSave: (input: MovementConfirmationInput) => void
+  task: TaskRun; latest?: MovementConfirmationInput; disabled: boolean; onSave: (input: MovementConfirmationInput) => void
 }) {
   const [editing, setEditing] = useState(false)
-  const [segments, setSegments] = useState<MovementConfirmation['deviations'][number]['segments']>(latest?.deviations[0]?.segments ?? [])
+  const [segments, setSegments] = useState<MovementConfirmationInput['deviations'][number]['segments']>(latest?.deviations[0]?.segments ?? [])
   const [comment, setComment] = useState(latest?.deviations[0]?.comment ?? '')
   const deviations = [{ segments: task.taskId.endsWith('1') ? ['all' as const] : segments, comment: comment.trim() }]
   const input: MovementConfirmationInput = { taskRunId: task.id, status: 'deviation', deviations }
-  const valid = movementConfirmationSchema.safeParse({ ...input, confirmedAtControllerMs: 0 }).success
+  const valid = movementConfirmationInputSchema.safeParse(input).success
   return <fieldset disabled={disabled}>
     <legend>{task.mode === 'normal' ? '固定表示' : '自動表示'}・{task.taskId}</legend>
     <p role="status">{latest ? `確認済み：${latest.status === 'as-planned' ? '予定どおり' : 'ずれあり'}` : '未確認'}</p>

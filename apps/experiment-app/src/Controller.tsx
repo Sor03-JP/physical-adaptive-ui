@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useEffectEvent, useRef, useState } from 'react'
 import { atom, useAtom } from 'jotai'
 import SavedRecording from './SavedRecording'
 import MovementConfirmationPanel from './MovementConfirmationPanel'
@@ -31,7 +31,7 @@ import type { TaskId } from './tasks'
 import type { Identity, Message, PhoneStatus, Presence } from './protocol'
 import { useMeasurementTransport } from './transport'
 import { MAX_SAMPLES } from './recording'
-import { TransferCollector } from './transfer'
+import { TransferCollector, checkpointTransfer, phoneTransferDigest } from './transfer'
 
 type Command = Extract<Message, { type: 'start' | 'stop' | 'clear' | 'task-start' | 'task-begin' | 'task-answer' | 'survey-open' | 'task-abort' }>
 const panelAtom = atom({ phone: null as PhoneStatus | null, received: 0, estimates: 0, valid: 0, complete: false, pending: '' })
@@ -52,6 +52,8 @@ export default function Controller({ identity }: { identity: Identity }) {
   const verified = useRef(false)
   const clearing = useRef(false)
   const historySession = useRef('')
+  const switchingSession = useRef(false)
+  const transferProof = useRef<{ key: string; matched: boolean | null } | null>(null)
   const managementSaving = useRef(false)
   const details = useRef<HTMLDetailsElement>(null)
   const continuationIntent = useRef<ContinuationIntent | null>(null)
@@ -102,18 +104,34 @@ export default function Controller({ identity }: { identity: Identity }) {
       const metadata = packet.metadata
       if (metadata) {
         if (collector.current && collector.current.metadata.sessionId !== metadata.sessionId) {
+          const previous = collector.current
+          if (packet.phoneFlow?.previousSessionId === previous.metadata.sessionId
+            && JSON.stringify(packet.participant) === JSON.stringify(previous.management.participant)) {
+            if (!switchingSession.current) {
+              switchingSession.current = true
+              void storage.archive().then(() => {
+                collector.current = null; command.current = null; historySession.current = ''; transferProof.current = null
+                verified.current = false; setCsvExported(false); setError(''); refresh()
+              }).catch(() => setError('やり直し前のPC記録を保管できませんでした。元の記録は保持しています。'))
+                .finally(() => { switchingSession.current = false })
+            }
+            return
+          }
           setError('別の記録を受信しました。現在のデータを保存してから、接続先を確認してください。'); return
         }
         if (!collector.current) {
+          transferProof.current = null
           collector.current = new TransferCollector(metadata, packet.continuation?.controllerTimeOriginMs ?? performance.timeOrigin, packet.estimationConfig)
           if (packet.continuation) { collector.current.continuation = packet.continuation; collector.current.management = structuredClone(packet.continuation.management) }
         }
         collector.current.setParticipant(packet.participant)
-        if (packet.recovered) collector.current.recovery ??= { phoneSavedThroughMs: packet.recoverySavedThroughMs!, detectedAt: new Date().toISOString() }
+        if (packet.recovered && packet.phoneFlow?.stage !== 'transfer') collector.current.recovery ??= { phoneSavedThroughMs: packet.recoverySavedThroughMs!, detectedAt: new Date().toISOString() }
         packet.recoveredTasks.forEach((task) => collector.current!.updateTask(task))
         collector.current.updateStatus(packet.count, packet.completion, packet.estimateCount)
         if (collector.current.updateTask(packet.taskRun)) verified.current = false
         if (collector.current.updateQuestionnaires(packet.questionnaires)) verified.current = false
+        if (collector.current.updatePhoneFlow(packet.phoneFlow)) verified.current = false
+        if (packet.phoneFlow) send({ type: 'phone-ack', sessionId: metadata.sessionId })
       }
       const pending = command.current
       if (pending?.type === 'start' && metadata?.sessionId === pending.sessionId) command.current = null
@@ -131,6 +149,7 @@ export default function Controller({ identity }: { identity: Identity }) {
         clearing.current = true
         void storage.archive().then(() => {
           collector.current = null; command.current = null; verified.current = false
+          transferProof.current = null
           setSelectedParticipant(continuationIntent.current?.context.participant ?? null); setCsvExported(false);
           setMessage(continuationIntent.current ? '元の記録を端末内に保管しました。センサーの準備を確認し、同じ参加者の続きの記録を開始してください。' : ''); refresh()
         }).catch(() => {
@@ -144,6 +163,8 @@ export default function Controller({ identity }: { identity: Identity }) {
       }
     } else if (packet.type === 'task-history' && packet.sessionId === collector.current?.metadata.sessionId) {
       packet.tasks.forEach((task) => { if (collector.current!.updateTask(task)) verified.current = false })
+      if (collector.current.updatePhoneFlow(phone.current?.phoneFlow)) verified.current = false
+      if (phone.current && collector.current.updateQuestionnaires(phone.current.questionnaires)) verified.current = false
       historySession.current = packet.sessionId
     } else if (packet.type === 'batch' && packet.sessionId === collector.current?.metadata.sessionId) {
       const current = collector.current
@@ -154,16 +175,44 @@ export default function Controller({ identity }: { identity: Identity }) {
     }
     refresh()
   }
-  const send = useMeasurementTransport(identity, { message: receive, presence: setPresence, connection: (value) => {
+  const { send } = useMeasurementTransport(identity, { message: receive, presence: setPresence, connection: (value) => {
     if (!value) historySession.current = ''
     setConnected(value)
   }, error: setError })
+  const verifyPhoneTransfer = useEffectEvent(() => {
+    const current = collector.current, status = phone.current
+    const expected = status?.transferDigest
+    if (!current?.complete || current.phoneFlow?.stage !== 'transfer' || !expected || historySession.current !== current.metadata.sessionId) return
+    const attempt = status.transferAttempt ?? 0
+    const key = `${current.metadata.sessionId}/${expected}/${attempt}`
+    if (transferProof.current?.key === key) {
+      if (transferProof.current.matched !== null) send({ type: 'phone-transfer-result', sessionId: current.metadata.sessionId, digest: expected, attempt, matched: transferProof.current.matched })
+      return
+    }
+    const proof = { key, matched: null as boolean | null }
+    transferProof.current = proof
+    void (async () => {
+      if (collector.current !== current || transferProof.current !== proof) return
+      if (!await storage.flush()) throw new Error('PC側の保存が完了していません。接続・保存状態を確認してください。')
+      const saved = await storage.journal.active()
+      if (!saved) throw new Error('PC側の保存記録が見つかりません。')
+      const [actual, memory] = await Promise.all([phoneTransferDigest(checkpointTransfer(saved)), phoneTransferDigest(current.export())])
+      if (collector.current !== current || transferProof.current !== proof) return
+      proof.matched = actual === expected && memory === expected
+      setError(proof.matched ? '' : 'PCとiPhoneの記録内容が一致しません。iPhoneから再接続して確認してください。')
+      send({ type: 'phone-transfer-result', sessionId: current.metadata.sessionId, digest: expected, attempt, matched: proof.matched }); refresh()
+    })().catch((cause) => {
+      if (transferProof.current === proof) { proof.matched = false; setError(cause instanceof Error ? cause.message : '転送の検証に失敗しました。'); refresh() }
+    })
+  })
   useEffect(() => {
     const timer = window.setInterval(() => {
       if (command.current) send(command.current)
       const current = collector.current
       const status = phone.current
       if (current) refresh()
+      verifyPhoneTransfer()
+      if (status?.phoneFlow && status.phoneFlow.stage !== 'transfer' && !status.recovered && !status.completion) return
       if (current && status?.metadata?.sessionId === current.metadata.sessionId && historySession.current !== current.metadata.sessionId) {
         send({ type: 'pull-tasks', sessionId: current.metadata.sessionId })
       }
@@ -189,6 +238,7 @@ export default function Controller({ identity }: { identity: Identity }) {
     const intent = continuationIntent.current
     if (intent && JSON.stringify(intent.context.participant) !== JSON.stringify(selectedParticipant)) { setError('続行する参加者が一致しません。'); return }
     command.current = { type: 'start', sessionId: intent?.sessionId ?? crypto.randomUUID(), participant: selectedParticipant,
+      ...(!intent ? { autonomous: true as const } : {}),
       ...(intent ? { continuation: intent.context } : {}) }
     send(command.current); refresh()
   }
@@ -209,7 +259,7 @@ export default function Controller({ identity }: { identity: Identity }) {
   }
   function managementBlocked() {
     const current = collector.current
-    return !current || !!command.current || !connected || !presence.sensor || reading || managementSaving.current || continuing
+    return !current || !!phone.current?.phoneFlow || !!command.current || !connected || !presence.sensor || reading || managementSaving.current || continuing
       || !storage.ready || !!storage.error || !!phone.current?.storage.error || !!current.recovery
       || historySession.current !== current.metadata.sessionId
   }
@@ -319,6 +369,7 @@ export default function Controller({ identity }: { identity: Identity }) {
     const current = collector.current
     return [
       !current && '記録がありません。',
+      current?.phoneFlow?.stage === 'transfer' && (transferProof.current?.matched !== true || transferProof.current.key !== `${current.metadata.sessionId}/${phone.current?.transferDigest}/${phone.current?.transferAttempt ?? 0}`) && 'iPhoneからの転送内容の一致確認を待っています。',
       !!current?.unconfirmedTaskRuns.length && '課題終了後の動作確認を保存してください。',
       continuing && '同じ参加者の続行を準備しています。',
       (!connected || !presence.sensor) && '同じ接続コードでiPhoneへ再接続してください。iPhone側の記録を保管する応答が必要です。',
@@ -401,12 +452,13 @@ export default function Controller({ identity }: { identity: Identity }) {
   const recording = collector.current !== null
   const recovery = !!collector.current?.recovery
   const run = status?.taskRun ?? null
+  const autonomous = !!status?.phoneFlow
   const taskElapsedMs = run?.startedAtMs != null ? (status?.metadata?.startedAtMs ?? 0) + (status?.elapsedMs ?? 0) - run.startedAtMs : 0
   const progress = experimentProgress({ recording, active, recovery, participant, step, run })
   const ready = !unavailable && !!status?.ready && storage.ready && !storage.error && !!status?.storage.ready && !status.storage.error
   const unconfirmedTasks = pendingMovementConfirmations(taskRuns, confirmations)
   const taskDisabled = unconfirmedTasks.length > 0 || taskBlocked()
-  const canContinue = !active && !continuationIntent.current && clearBlockers(true).length === 0
+  const canContinue = !autonomous && !active && !continuationIntent.current && clearBlockers(true).length === 0
   const clearReasons = clearBlockers()
   const canClear = clearReasons.length === 0
   const nextParticipantBlockers = [
@@ -418,7 +470,7 @@ export default function Controller({ identity }: { identity: Identity }) {
   const waitingForPhone = recording && status?.metadata?.sessionId !== collector.current?.metadata.sessionId
   const requiresRetry = step?.kind === 'task' && taskRuns.some((task) => task.purpose === 'main' && task.taskId === step.taskId && task.mode === step.mode)
   function showTroubleshooting() { if (details.current) { details.current.open = true; const retryPanel = details.current.querySelector<HTMLDetailsElement>('[data-retry-panel]'); if (retryPanel) retryPanel.open = true; (retryPanel ?? details.current).scrollIntoView({ behavior: 'smooth', block: 'start' }) } }
-  const showTask = active && !recovery && (step?.kind === 'task' || (step?.kind === 'active' && run?.purpose === 'main'))
+  const showTask = !autonomous && active && !recovery && (step?.kind === 'task' || (step?.kind === 'active' && run?.purpose === 'main'))
   const progressManager = (<ParticipantManager variant={collector.current ? 'details' : 'setup'} participant={participant} selected={selectedParticipant} onSelect={setSelectedParticipant}
       locked={!!collector.current || !!panel.pending || !!continuationIntent.current} management={management} tasks={progressTasks} retryTasks={taskRuns} surveys={surveys}
       pending={managementBlocked()} retryDisabled={retryBlocked()} onFailure={markFailure} onRetry={retryTask}
@@ -434,10 +486,10 @@ export default function Controller({ identity }: { identity: Identity }) {
     {[...new Set([presence.error, error, storage.error, status?.storage.error].filter(Boolean))].map((text) => <p className="error controller-alert" role="alert" key={text}>{text}</p>)}
     {unavailable && recording && <p className="notice controller-alert">通信が切れています。iPhoneの課題計測・合図音・端末内保存は続きます。PCの秒数で指示せず、iPhoneの音を合図にしてください。画面を更新せず接続が戻るのを待つと、未受信データを回収します。</p>}
     {recovery && <p className="notice controller-alert">iPhone更新による中断記録です。保存済みデータを回収してください。途中課題は自動再開しません。</p>}
-    <ExperimentProgress index={progress.index} />
+    {!autonomous && <ExperimentProgress index={progress.index} />}
     <div className="controller-workspace">
       <section className="experiment-current" aria-label="現在の操作">
-        <h2>{waitingForPhone ? '保存記録を復旧・iPhoneの接続を確認中' : progress.title}</h2>
+        <h2>{waitingForPhone ? '保存記録を復旧・iPhoneの接続を確認中' : autonomous && active ? 'iPhoneで説明・練習・本番を進めます' : progress.title}</h2>
         {panel.pending && <p role="status">操作を送信しています。iPhoneの応答を待っています。</p>}
         {!recording ? <>
           {unavailable && <><p>iPhoneで同じ接続コードのURLを開き、センサーの利用を許可してください。</p>
@@ -445,27 +497,32 @@ export default function Controller({ identity }: { identity: Identity }) {
           {!unavailable && !status?.ready && <p>iPhone画面を表示し、「センサー利用を許可・準備」を押してください。</p>}
           {progressManager}
           {continuationIntent.current && <p className="notice">同じ参加者の続きから再開します。完了済みの課題・送信済みアンケートは引き継ぎます。</p>}
-          <p>{!ready ? '接続・センサー受信・両端末の保存準備がそろうと開始できます。' : !selectedParticipant ? '参加者IDを選んでください。' : continuationIntent.current ? '準備ができたら、同じ参加者の続きの記録を開始してください。' : '説明・同意を確認したら記録を開始し、共通練習へ進みます。'}</p>
-          <button className="primary" disabled={!selectedParticipant || !ready || !!panel.pending || reading || !continuationLoaded.current} onClick={start}>{continuationIntent.current ? '同じ参加者の続きの記録を開始' : '記録を開始して練習へ'}</button>
+          <p>{!ready ? '接続・センサー受信・両端末の保存準備がそろうと開始できます。' : !selectedParticipant ? '参加者IDを選んでください。' : continuationIntent.current ? '準備ができたら、同じ参加者の続きの記録を開始してください。' : '参加者の設定を同期したら、説明・同意とチュートリアルをiPhoneで行います。'}</p>
+          <button className="primary" disabled={!selectedParticipant || !ready || !!panel.pending || reading || !continuationLoaded.current} onClick={start}>{continuationIntent.current ? '同じ参加者の続きの記録を開始' : '設定を同期してiPhoneで開始'}</button>
         </> : waitingForPhone ? <p role="status">同じ接続コードのiPhoneを待っています。現在の記録は保持しています。必要なデータは「詳細・トラブル対応」から出力できます。</p> : <>
-          {progress.index === 1 && <><p className="status">{run?.purpose === 'practice' && !['complete', 'aborted'].includes(run.phase) ? 'iPhoneで練習中です。' : 'iPhoneの「練習問題を表示」から1問練習してください。'}</p>
+          {autonomous && active && <>
+            <p>説明・同意、チュートリアル、本番課題とアンケートはiPhoneで進めてください。実験者は監視と開始・停止・課題後の動作確認を行います。</p>
+            <p>本番中は通信が切れても端末内で記録します。最後のアンケート後に同じWi-Fiへ戻ると、全記録を回収して内容を確認します。</p>
+          </>}
+          {!autonomous && progress.index === 1 && <><p className="status">{run?.purpose === 'practice' && !['complete', 'aborted'].includes(run.phase) ? 'iPhoneで練習中です。' : 'iPhoneの「練習問題を表示」から1問練習してください。'}</p>
             <p>選択・選び直し・情報が消えた後の回答まで体験します。練習が終わると、ここに最初の本番課題が表示されます。</p></>}
-          {unconfirmedTasks.length > 0 && <p className="notice" role="status">次へ進む前に、下の「課題終了後の動作確認」を保存してください。</p>}
+          {!autonomous && unconfirmedTasks.length > 0 && <p className="notice" role="status">次へ進む前に、下の「課題終了後の動作確認」を保存してください。</p>}
           {showTask && requiresRetry && <><p className="notice">この課題には既に試行記録があります。中断理由と再実施の対応を確認してください。</p><button onClick={showTroubleshooting}>再実施・中断の対応を開く</button></>}
           {showTask && planned && !requiresRetry && <TaskController planned={planned} startAllowed={step?.kind === 'task'}
             run={run} count={collector.current?.taskCount ?? 0}
             elapsedSeconds={taskElapsedMs / 1000}
             disabled={taskDisabled} pending={!!panel.pending} onStart={startTask} onBegin={beginTask} onConfirmStopped={confirmStopped} />}
-          {showSurvey && <QuestionnaireController allowedTarget={step.target} runs={surveys} tasks={assessable}
+          {!autonomous && showSurvey && <QuestionnaireController allowedTarget={step.target} runs={surveys} tasks={assessable}
             disabled={unconfirmedTasks.length > 0 || managementBlocked() || (run != null && !['complete', 'aborted'].includes(run.phase))} onOpen={openSurvey} />}
           {progress.index === 5 && <>
             {active ? <><p>両条件とアンケートが終了しました。センサー記録を停止してから、保存へ進みます。</p>
               <button className="primary" disabled={!!panel.pending} onClick={stop}>記録を停止して保存へ</button></>
               : <>
                 <p>受信件数：iPhone {status?.count ?? 0} ／ PC {panel.received} 件</p>
+                {autonomous && <p role="status">{transferProof.current?.matched === true ? 'iPhoneとPCの記録内容の一致を確認しました。JSONとアンケートCSVを保存してください。' : 'iPhoneの全記録を回収し、内容を照合しています。iPhoneの画面を開いたままお待ちください。'}</p>}
                 {!panel.complete && <p className="notice">未受信または途中のデータがあります。回収状況を確認してください。途中データも出力できます。</p>}
                 {step?.kind !== 'done' && <p className="notice">全課題・アンケートが終了した記録ではありません。中断した内容を確認して保存してください。</p>}
-                {participant && step?.kind !== 'done' && <ContinuationPanel participantId={participant.participantId}
+                {!autonomous && participant && step?.kind !== 'done' && <ContinuationPanel participantId={participant.participantId}
                   disabled={!canContinue || continuing} onContinue={(reason) => void continueParticipant(reason)} />}
                 <h3>実験を終了する・次の参加者へ進む場合</h3>
                 {collector.current?.continuation && <p>今回の記録と、続行元の記録をまとめて1つのJSONに保存します。</p>}
@@ -492,12 +549,12 @@ export default function Controller({ identity }: { identity: Identity }) {
               </>}
           </>}
         </>}
-        {recording && <MovementConfirmationPanel tasks={taskRuns} history={confirmations}
+        {recording && !autonomous && <MovementConfirmationPanel tasks={taskRuns} history={confirmations}
           disabled={!storage.ready || !!storage.error || reading || !!panel.pending || (run != null && !['complete', 'aborted'].includes(run.phase))}
           onSave={(input) => void confirmMovement(input)} />}
         {message && <p className="success" role="status">{message}</p>}
       </section>
-      {active && recording && <div className="experiment-observation">
+      {active && recording && !autonomous && <div className="experiment-observation">
         <ObservationPanel run={run} elapsedMs={taskElapsedMs} log={research}
           hidden={hideInference} onHidden={setHideInference} />
       </div>}
