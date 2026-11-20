@@ -53,7 +53,7 @@ export default function TransitTaskScreen({ run, onPresent, onAdvance, onSelectT
     const target = event.target instanceof Element ? event.target.closest('[data-task-action]') : null
     onTap(event.clientX, event.clientY, target?.getAttribute('data-task-action') ?? 'outside')
   }}>
-    {error && <p className="error" role="alert">{error}</p>}
+    {error && <p className="error callout" role="alert">{error}</p>}
     {briefingVisible || informationVisible ? <div className="task-information">
       <h1>{practice && '練習：'}{task.to}行きで次に発車する電車を選び、到着時刻を確認してください。</h1>
       <div className="task-context">
@@ -73,17 +73,22 @@ export default function TransitTaskScreen({ run, onPresent, onAdvance, onSelectT
       </ul>
       </> : <p>{practice ? '問題を理解したら、下のボタンで練習を開始してください。' : '問題を理解できたら実験者にお知らせください。'}開始後に電車の候補が表示されます。</p>}
     </div> : run.phase === 'answering' ? <>
-      <h1>{practice && '練習：'}指定された行先へ次に発車する電車の到着時刻を回答してください。</h1>
-      <p className="task-answer" aria-live="polite">{unknown ? '分からない' : `${digits.padEnd(4, '－').slice(0, 2)}:${digits.padEnd(4, '－').slice(2)}`}</p>
-      <p>時・分を4桁で入力し、「回答送信」を押してください（例：09:30 → 0930）。{run.timing.answerMs / 1000}秒以内に回答してください。</p>
-      <div className="task-keypad">
-        {Array.from({ length: 9 }, (_, i) => i + 1).map((value) =>
-          <button key={value} data-task-action={`answer-${value}`} onClick={() => enterDigit(value)}>{value}</button>)}
-        <button data-task-action="answer-clear" onClick={() => { setDigits(''); setUnknown(false) }}>消去</button>
-        <button data-task-action="answer-0" onClick={() => enterDigit(0)}>0</button>
-        <button data-task-action="answer-delete" onClick={() => { setDigits((current) => current.slice(0, -1)); setUnknown(false) }}>1字戻す</button>
+      <h1>{practice && '練習：'}到着時刻を回答</h1>
+      <p>指定された行先へ次に発車する電車について、{run.timing.answerMs / 1000}秒以内に到着時刻を4桁で入力してください（例：09:30 → 0930）。</p>
+      <div className="answer-pad">
+        <div className="answer-display">
+          <span>入力した到着時刻</span>
+          <p className="task-answer" aria-live="polite">{unknown ? '分からない' : `${digits.padEnd(4, '－').slice(0, 2)}:${digits.padEnd(4, '－').slice(2)}`}</p>
+        </div>
+        <div className="task-keypad">
+          {Array.from({ length: 9 }, (_, i) => i + 1).map((value) =>
+            <button key={value} data-task-action={`answer-${value}`} onClick={() => enterDigit(value)}>{value}</button>)}
+          <button data-task-action="answer-clear" onClick={() => { setDigits(''); setUnknown(false) }}>消去</button>
+          <button data-task-action="answer-0" onClick={() => enterDigit(0)}>0</button>
+          <button data-task-action="answer-delete" onClick={() => { setDigits((current) => current.slice(0, -1)); setUnknown(false) }}>1字戻す</button>
+        </div>
       </div>
-      <div className="controls">
+      <div className="answer-actions">
         <button aria-pressed={unknown} data-task-action="answer-unknown" onClick={() => { setUnknown((current) => !current); setDigits('') }}>分からない</button>
         <button className="primary" data-task-action="submit" disabled={!validAnswer} onClick={() => { if (validAnswer) onAnswer(unknown ? 'unknown' : arrival) }}>回答送信</button>
       </div>
@@ -105,6 +110,6 @@ export default function TransitTaskScreen({ run, onPresent, onAdvance, onSelectT
     {practice && run.phase === 'waiting-stop' && <button className="primary" data-task-action="practice-confirm" onClick={onPracticeConfirm}>立ち止まったので回答へ</button>}
     {!practice && run.phase === 'waiting-stop' && <button className="primary" data-task-action="confirm-stopped" onClick={onConfirmStopped}>実験者用：停止を確認して回答へ</button>}
     {practice && ['complete', 'aborted'].includes(run.phase) && <button data-task-action="practice-finish" onClick={onPracticeFinish}>練習を閉じる</button>}
-    {!['complete', 'aborted'].includes(run.phase) && <footer><button data-task-action="emergency-stop" onClick={onStop}>実験を中止</button></footer>}
+    {!['complete', 'aborted'].includes(run.phase) && <footer className="mobile-footer"><button className="stop-recording" data-task-action="emergency-stop" onClick={onStop}>実験を中止</button></footer>}
   </div>
 }
