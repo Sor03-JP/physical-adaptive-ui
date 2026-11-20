@@ -97,10 +97,10 @@ export class TransitTrial {
     return changed
   }
 
-  begin(now: number): void {
+  begin(now: number, source: 'controller' | 'phone' = 'controller'): void {
     if (this.run.phase !== 'briefing' || this.run.briefingShownAtMs === null) return
     this.run.beginRequestedAtMs = now; this.run.phase = 'preparing'
-    this.log('view-requested', now)
+    this.log('view-requested', now, source === 'phone' ? { action: 'phone-start-confirmed' } : {})
   }
 
   advance(now: number): void {

@@ -6,13 +6,16 @@ import { BATCH_SIZE, MAX_SAMPLES, metadataSchema, sampleSchema, completionSchema
 import { estimateSchema, estimationConfigSchema } from './estimation'
 import { taskIdSchema, taskRunSchema } from './task-schema'
 import { continuationSchema } from './continuation'
+import { phoneFlowSchema } from './phone-flow'
 
 export const joinSchema = z.strictObject({
   room: z.string().regex(/^[a-z0-9-]{1,40}$/), role: z.enum(['controller', 'sensor']),
 })
 export type Identity = z.infer<typeof joinSchema>
 export const messageSchema = z.discriminatedUnion('type', [
-  z.strictObject({ type: z.literal('start'), sessionId: z.string().min(1), participant: participantSchema.nullable().default(null), continuation: continuationSchema.optional() }),
+  z.strictObject({ type: z.literal('start'), sessionId: z.string().min(1), participant: participantSchema.nullable().default(null), continuation: continuationSchema.optional(), autonomous: z.literal(true).optional() }),
+  z.strictObject({ type: z.literal('phone-ack'), sessionId: z.string().min(1) }),
+  z.strictObject({ type: z.literal('phone-transfer-result'), sessionId: z.string().min(1), digest: z.string().regex(/^[a-f0-9]{64}$/), attempt: z.int().nonnegative(), matched: z.boolean() }),
   z.strictObject({ type: z.literal('stop'), sessionId: z.string().min(1) }),
   z.strictObject({ type: z.literal('pull-tasks'), sessionId: z.string().min(1) }),
   z.strictObject({ type: z.literal('task-history'), sessionId: z.string().min(1), tasks: z.array(taskRunSchema).max(100) }),
@@ -31,6 +34,7 @@ export const messageSchema = z.discriminatedUnion('type', [
     recoveredTasks: z.array(taskRunSchema).max(100),
     participant: participantSchema.nullable(), recovered: z.boolean(), recoverySavedThroughMs: z.number().finite().nonnegative().nullable(),
     continuation: continuationSchema.optional(),
+    phoneFlow: phoneFlowSchema.optional(), transferDigest: z.string().regex(/^[a-f0-9]{64}$/).nullable().optional(), transferAttempt: z.int().nonnegative().optional(),
     storage: z.strictObject({ ready: z.boolean(), error: z.string(), savedAt: z.string(), restored: z.boolean() }),
     questionnaires: surveyListSchema,
     metadata: metadataSchema.nullable(), completion: completionSchema.nullable(), taskRun: taskRunSchema.nullable(),

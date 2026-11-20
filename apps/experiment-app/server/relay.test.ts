@@ -53,6 +53,11 @@ it.each([false, true])('isolates rooms and validates roles in development/previe
   expect(await h.post(pc.client, { type: 'unknown' })).toBe(400)
   expect(await h.post(pc.client, { type: 'stop', sessionId: 'one' }, { origin: 'https://evil.example' })).toBe(403)
   expect(await h.post(pc.client, { type: 'stop', sessionId: 'one' }, { origin: undefined })).toBe(403)
+  const result = { type: 'phone-transfer-result', sessionId: 'one', digest: 'a'.repeat(64), attempt: 1, matched: true }
+  expect(await h.post(pc.client, result)).toBe(204)
+  expect(phone.events('message').at(-1)).toEqual(result)
+  expect(await h.post(phone.client, result)).toBe(403)
+  expect(await h.post(pc.client, { ...result, digest: 'invalid' })).toBe(400)
 })
 
 it('reconnects the same client, rejects duplicate roles, and only forwards to the replacement stream', async () => {

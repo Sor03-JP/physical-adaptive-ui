@@ -19,6 +19,7 @@ export function connectMeasurement(identity: Identity, handlers: Handlers) {
   let source: EventSource, connected = false, lastReceived = performance.now()
   const disconnected = () => { connected = false; handlers.connection(false) }
   function connect() {
+    if (lifetime.signal.aborted) return
     source?.close()
     pending.clear()
     disconnected()
@@ -68,6 +69,7 @@ export function connectMeasurement(identity: Identity, handlers: Handlers) {
     } finally { posting = false }
   }
   return {
+    reconnect: connect,
     send(message: Message) {
       if (!connected || lifetime.signal.aborted) return
       // Preserve delivery order; coalesce periodic updates instead of growing a queue.
@@ -92,5 +94,7 @@ export function useMeasurementTransport(identity: Identity, handlers: Handlers) 
     transport.current = current
     return () => { transport.current = null; current.close() }
   }, [identity])
-  return useCallback((message: Message) => transport.current?.send(message), [])
+  const send = useCallback((message: Message) => transport.current?.send(message), [])
+  const reconnect = useCallback(() => transport.current?.reconnect(), [])
+  return { send, reconnect }
 }
