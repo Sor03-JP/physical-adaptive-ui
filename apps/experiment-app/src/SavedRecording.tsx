@@ -17,11 +17,11 @@ export default function SavedRecording({ active, reading, setReading, onVerified
   const [imported, setImported] = useState<{ id: string; version: number; count: number; estimates: number; tasks: number; practiceTasks: number; researchEvents: number; surveys: number; submittedSurveys: number; complete: string; first: ReadableMotionSample | null; last: ReadableMotionSample | null } | null>(null)
   const [importedSurveys, setImportedSurveys] = useState<SurveyRun[]>([])
   const [importedParticipant, setImportedParticipant] = useState<Participant | null>(null)
-  const [message, setMessage] = useState('')
+  const [message, setMessage] = useState<{ text: string; kind: 'success' | 'notice' } | null>(null)
   const [error, setError] = useState('')
   async function importFile(file: File | undefined) {
     if (!file || reading) return
-    setReading(true); setImported(null); setImportedSurveys([]); setImportedParticipant(null); setError(''); setMessage('')
+    setReading(true); setImported(null); setImportedSurveys([]); setImportedParticipant(null); setError(''); setMessage(null)
     try {
       const { records, recording, same } = await readSavedFile(file, getRecords)
       if (records) {
@@ -43,8 +43,9 @@ export default function SavedRecording({ active, reading, setReading, onVerified
           first: data.samples[0] ?? null, last: data.samples.at(-1) ?? null })
       }
       if (same && records) onVerified(records.at(-1)!)
-      setMessage(same ? '保存したファイルと、この画面の記録が一致しました。保存確認は完了です。'
-        : 'この画面の記録とは一致していません。直前に保存したファイルを選び直してください。別の記録のファイルとしては読み込めています。')
+      setMessage(same
+        ? { text: '保存したファイルと現在の記録が一致しました。', kind: 'success' }
+        : { text: '現在の記録と一致しません。直前に保存したファイルを選び直してください。', kind: 'notice' })
     } catch (cause) { setError(cause instanceof Error ? cause.message : '保存ファイルを確認できませんでした。') }
     finally { setReading(false) }
   }
@@ -53,18 +54,22 @@ export default function SavedRecording({ active, reading, setReading, onVerified
     if (!imported || !importedSurveys.length || reading) return
     try {
       downloadText(writeQuestionnaireCsv(importedSurveys, importedParticipant), `${importedParticipant?.participantId ?? 'unassigned'}_${imported.id}_questionnaires.csv`, 'text/csv;charset=utf-8')
-      setError(''); setMessage('読み込んだJSONのアンケートをCSVで出力しました。現在のPC記録は変更していません。')
+      setError(''); setMessage({ text: '読み込んだJSONのアンケートをCSVで出力しました。現在のPC記録は変更していません。', kind: 'success' })
     } catch { setError('アンケートCSVを出力できませんでした。') }
   }
 
   return (
-    <section>
-      <h2>2. 保存したファイルを確認する</h2>
-      <p>保存ができたか確かめます。「ファイルを選択」から、先ほどダウンロードした末尾が「.json」のファイルを選んでください。通常はPCの「ダウンロード」フォルダにあります。</p>
-      <p><small>ファイルの内容を、この画面の記録と自動で照合します。ファイルを編集したり、実験データを書き換えたりする操作ではありません。</small></p>
-      <label>保存したデータファイル（.json）<input type="file" accept="application/json,.json" disabled={active || reading}
-        onChange={(event) => { void importFile(event.currentTarget.files?.[0]); event.currentTarget.value = '' }} /></label>
+    <li className="save-step">
+      <h3>保存したファイルを確認する</h3>
+      <p>先ほどダウンロードしたJSONを選ぶと、現在の記録と自動で照合します。</p>
+      <label className="experiment-field">
+        <span>保存したデータファイル（.json）</span>
+        <input type="file" name="savedRecording" accept="application/json,.json" disabled={active || reading}
+          onChange={(event) => { void importFile(event.currentTarget.files?.[0]); event.currentTarget.value = '' }} />
+      </label>
       {reading && <p role="status">ファイルの内容を確認しています…</p>}
+      {error && <p className="error callout" role="alert">{error}</p>}
+      {message && <p className={`callout ${message.kind}`} role="status">{message.text}</p>}
       {imported && <details><summary>選んだファイルの内容</summary>{importedParticipant && <p>参加者：{importedParticipant.participantId} ／ {importedParticipant.group}</p>}<p>記録ID：{imported.id}<br />{imported.count}件 ／ {imported.complete} ／ 形式v{imported.version}</p>
         <p>推定ログ：{imported.estimates}件</p>
         <p>課題ログ：本番{imported.tasks - imported.practiceTasks}件・練習{imported.practiceTasks}件 ／ 観察・指示：{imported.researchEvents}件</p>
@@ -72,8 +77,6 @@ export default function SavedRecording({ active, reading, setReading, onVerified
         {importedSurveys.length > 0 && <button disabled={reading} onClick={downloadImportedQuestionnaires}>読み込んだJSONのアンケートをCSV出力</button>}
         {imported.version === 1 && <p className="notice">旧形式のintervalMsはAPIの生値です。実受信間隔（ms）とは区別してください。</p>}
         <details><summary>先頭・末尾のサンプル</summary><pre>{JSON.stringify({ first: imported.first, last: imported.last }, null, 2)}</pre></details></details>}
-      {error && <p className="error" role="alert">{error}</p>}
-      {message && <p className="success" role="status">{message}</p>}
-    </section>
+    </li>
   )
 }
