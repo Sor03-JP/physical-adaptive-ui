@@ -82,7 +82,7 @@ export default function Sensor({ identity }: { identity: Identity }) {
   const [connected, setConnected] = useState(false)
   const [controller, setController] = useState(false)
   const [pending, setPending] = useState(false)
-  const [status, setStatus] = useState('貸出前にセンサーの利用を許可してください。')
+  const [status, setStatus] = useState('センサーの利用許可を待っています。')
   function phoneHeader(current: MeasurementRecorder) {
     return { ...(continuation.current ? { continuation: continuation.current } : {}), ...(flow.current ? { phoneFlow: flow.current } : {}),
       format: 'physical-adaptive-phone-checkpoint' as const, version: 1 as const,
@@ -455,7 +455,7 @@ export default function Sensor({ identity }: { identity: Identity }) {
     questionnaires.current.dismiss(); renderSurvey(); setDismissedPracticeId(null)
     const previousRun = previous ?? continuation.current?.tasks.at(-1)
     trial.current = new TransitTrial(runId, current.metadata.sessionId, taskId, performance.now(), mode, {
-      kind: previousRun?.kind, originalSessionId: continuation.current?.previousSessionIds[0],
+      kind: previousRun?.kind, timing: previousRun?.timing, originalSessionId: continuation.current?.previousSessionIds[0],
     })
     trial.current.updateAdaptation(current.latestEstimate, performance.now())
     renderTask()
@@ -507,9 +507,8 @@ export default function Sensor({ identity }: { identity: Identity }) {
   }
   const audioControls = <div className="audio-check">
       <p><strong>合図音</strong> <span className={audioReady ? 'success' : 'notice'}>{audioReady ? '準備済み' : '未準備'}</span></p>
-      <p>切替は短い音、終了は長い音です。音に直接反応せず、実験者の指示に従ってください。</p>
+      <p>短い音で次の動作に切り替え、長い音が鳴ったら安全に立ち止まってください。</p>
       <button onClick={() => void prepareAudio()}>合図音を準備・試聴</button>
-      <p><small>貸出前に音量を確認してください。画面は開いたままにします。</small></p>
       {error.current && <p className="error" role="alert">{error.current}</p>}
     </div>
   const localActive = recorder.current?.active ?? false

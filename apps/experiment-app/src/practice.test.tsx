@@ -15,7 +15,7 @@ function completedPractice(id = 'practice') {
   const trial = new TransitTrial(id, 'session', 'P1', 0, 'automatic')
   trial.present(10); trial.begin(20); trial.present(30)
   trial.showDetails(1, 40); trial.select(1, 50); trial.present(60)
-  trial.advance(15030); trial.confirmStopped(15040); trial.present(15050); trial.answer('09:27', 15060)
+  trial.advance(18030); trial.confirmStopped(18040); trial.present(18050); trial.answer('09:27', 18060)
   return trial
 }
 
@@ -35,17 +35,19 @@ it('uses different stations, scenario time and train times from all main tasks',
 it('offers phone controls only during practice and retains the same timed task flow', () => {
   const practice = new TransitTrial('practice', 'session', 'P1', 0, 'automatic')
   expect(render(practice)).toContain('理解したので練習を開始')
+  expect(render(practice)).toContain('18秒間、静止を維持')
   expect(render(practice)).toMatch(/disabled=""[^>]*>理解したので練習を開始/)
   practice.present(10); practice.begin(20); practice.present(30)
   expect(render(practice)).not.toContain('理解したので練習を開始')
+  expect(render(practice)).not.toContain('この課題の動作')
   practice.showDetails(1, 40); practice.select(1, 50); practice.present(60)
-  practice.advance(15029)
+  practice.advance(18029)
   expect(practice.snapshot().phase).toBe('viewing')
-  practice.advance(15030)
+  practice.advance(18030)
   expect(render(practice)).toContain('立ち止まったので回答へ')
-  practice.confirmStopped(15040); practice.present(15050)
+  practice.confirmStopped(18040); practice.present(18050)
   expect(render(practice)).toContain('回答送信')
-  practice.answer('09:27', 15060)
+  practice.answer('09:27', 18060)
   expect(render(practice)).toContain('練習を閉じる')
   expect(practice.snapshot()).toMatchObject({ taskId: 'P1', purpose: 'practice', mode: 'automatic', outcome: 'correct' })
   expect(taskRunSchema.parse(practice.snapshot())).toEqual(practice.snapshot())

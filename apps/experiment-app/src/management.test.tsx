@@ -15,8 +15,8 @@ const participant = (group: Group = 'G1'): Participant => ({ participantId: 'p01
 function complete(id: string, taskId: TrialTaskId, mode: 'normal' | 'automatic', now = 0): TaskRun {
   const trial = new TransitTrial(id, 'session', taskId, now, mode)
   trial.present(now + 1); trial.begin(now + 2); trial.present(now + 3)
-  trial.advance(now + 15003); trial.confirmStopped(now + 15004); trial.present(now + 15005)
-  trial.answer('unknown', now + 15006)
+  trial.advance(now + 18003); trial.confirmStopped(now + 18004); trial.present(now + 18005)
+  trial.answer('unknown', now + 18006)
   return trial.snapshot()
 }
 function submit(book: QuestionnaireBook, target: SurveyTarget, ids: string[], tasks: TaskRun[], now: number) {
@@ -87,7 +87,7 @@ describe('participant allocation and progress', () => {
   it('keeps previous-session progress visible but only offers current-session tasks for failure and retry', () => {
     const old = new TransferCollector(metadata, 5000)
     old.setParticipant(participant()); old.updateTask(complete('previous', 'A1', 'normal'))
-    old.updateStatus(0, { endedAtMs: 16000, stopReason: 'manual' })
+    old.updateStatus(0, { endedAtMs: 19000, stopReason: 'manual' })
     const current = new TransferCollector({ ...metadata, sessionId: 'resumed' }, 5000)
     current.continuation = prepareContinuation(old.export(), '接続確認', 20000, 'unused')
     current.management = structuredClone(current.continuation.management)

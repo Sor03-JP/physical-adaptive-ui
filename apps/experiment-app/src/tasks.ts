@@ -1,6 +1,6 @@
 import { AdaptationPolicy } from '@physical-adaptive/core'
 import type { MotionEstimate } from '@physical-adaptive/device-motion'
-import { delayTaskForSession, transitTasks, taskTiming, targetTrainIndex, arrivalTimeSchema } from './task-schema'
+import { delayTaskForSession, transitTasks, taskTiming, previousTaskTiming, targetTrainIndex, arrivalTimeSchema } from './task-schema'
 import type { TrialTaskId, TaskRun, TaskEvent } from './task-schema'
 import { uiConfig } from './adaptation'
 import type { ExperimentMode, PresentationMetrics, RenderedTaskContext } from './adaptation'
@@ -26,11 +26,11 @@ export class TransitTrial {
   private presentedUiKey = ''
 
   constructor(id: string, sessionId: string, taskId: TrialTaskId, requestedAtMs: number, mode: ExperimentMode = 'normal', {
-    kind = 'earliest-arrival', originalSessionId = sessionId,
-  }: { kind?: TaskRun['kind']; originalSessionId?: string } = {}) {
+    kind = 'earliest-arrival', originalSessionId = sessionId, timing = kind === 'next-departure' ? previousTaskTiming : taskTiming,
+  }: { kind?: TaskRun['kind']; originalSessionId?: string; timing?: TaskRun['timing'] } = {}) {
     this.policy = new AdaptationPolicy(uiConfig)
     const initial: Omit<TaskRun, 'kind' | 'problem'> = {
-      flow: 'briefing-first', id, sessionId, taskId, purpose: taskId === 'P1' ? 'practice' : 'main', mode, phase: 'briefing', timing: { ...taskTiming },
+      flow: 'briefing-first', id, sessionId, taskId, purpose: taskId === 'P1' ? 'practice' : 'main', mode, phase: 'briefing', timing: { ...timing },
       requestedAtMs, briefingShownAtMs: null, beginRequestedAtMs: null, startedAtMs: null, hiddenAtMs: null,
       stopConfirmedAtMs: null, answerShownAtMs: null, endedAtMs: null, selectedTrainIndex: null,
       selectedAtMs: null, selectedShownAtMs: null, answer: null, outcome: null, abortReason: null, events: [],

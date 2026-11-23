@@ -201,7 +201,7 @@ it('assigns one departed distractor at the same task number per condition and ke
   }
 })
 
-it('records detail navigation separately from final selection and keeps the 15-second timeout', () => {
+it('records detail navigation separately from final selection and keeps the 18-second timeout', () => {
   const trial = preparedTrial('delay', 'session', 'A1', 0, 'automatic', { kind: 'earliest-arrival' })
   trial.present(100)
   trial.select(1, 150)
@@ -212,10 +212,10 @@ it('records detail navigation separately from final selection and keeps the 15-s
   trial.showDetails(null, 220)
   trial.showDetails(0, 300); trial.select(0, 310); trial.present(315); trial.showDetails(null, 320)
   trial.showDetails(1, 400); trial.select(1, 410); trial.present(415); trial.showDetails(null, 420)
-  trial.showDetails(2, 15099); trial.select(2, 15100)
-  expect(trial.snapshot()).toMatchObject({ phase: 'waiting-stop', hiddenAtMs: 15100, openTrainIndex: null,
+  trial.showDetails(2, 18099); trial.select(2, 18100)
+  expect(trial.snapshot()).toMatchObject({ phase: 'waiting-stop', hiddenAtMs: 18100, openTrainIndex: null,
     selectedTrainIndex: 1, selectedAtMs: 410, selectedShownAtMs: 415 })
-  trial.confirmStopped(15200); trial.present(15220); trial.answer('10:46', 15400)
+  trial.confirmStopped(18200); trial.present(18220); trial.answer('10:46', 18400)
   const result = taskRunSchema.parse(trial.snapshot())
   expect(result).toMatchObject({ kind: 'earliest-arrival', phase: 'complete', outcome: 'correct', answer: '10:46' })
   expect(result.events.filter((event) => event.type === 'detail-opened').map((event) => event.trainIndex)).toEqual([1, 0, 1, 2])
@@ -238,7 +238,7 @@ it.each([
     trial.showDetails(1, 200); trial.select(1, 210); trial.showDetails(null, 220)
     trial.showDetails(selected, 230); trial.select(selected, 240)
   }
-  trial.advance(15100); trial.confirmStopped(15200); trial.present(15220); trial.answer(answer, 15400)
+  trial.advance(18100); trial.confirmStopped(18200); trial.present(18220); trial.answer(answer, 18400)
   const result = taskRunSchema.parse(trial.snapshot())
   expect(result).toMatchObject({ phase: 'complete', selectedTrainIndex: selected, answer, outcome })
   expect(targetTrainIndex(result.problem)).toBe(1)
@@ -308,10 +308,10 @@ describe('briefing before timed candidate display', () => {
     trial.select(2, 61020) // Candidate screen still has not committed.
     expect(trial.snapshot().selectedTrainIndex).toBeNull()
     trial.present(61500)
-    trial.advance(76499)
+    trial.advance(79499)
     expect(trial.snapshot().phase).toBe('viewing')
-    trial.advance(76500)
-    expect(trial.snapshot()).toMatchObject({ phase: 'waiting-stop', hiddenAtMs: 76500, startedAtMs: 61500 })
+    trial.advance(79500)
+    expect(trial.snapshot()).toMatchObject({ phase: 'waiting-stop', hiddenAtMs: 79500, startedAtMs: 61500 })
     expect(trial.snapshot().events.filter((event) => ['briefing-shown', 'view-requested', 'task-shown'].includes(event.type)))
       .toMatchObject([{ type: 'briefing-shown', atMs: 100 }, { type: 'view-requested', atMs: 61000 }, { type: 'task-shown', atMs: 61500 }])
     expect(taskRunSchema.parse(trial.snapshot())).toEqual(trial.snapshot())

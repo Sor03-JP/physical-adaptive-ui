@@ -100,6 +100,7 @@ it('shows only the problem before PC start, and retains the same problem with ca
   for (const text of ['南町駅に最も早く着く便', '一部の路線が遅延', '想定現在時刻', '10:25', '青葉', '目的地']) expect(briefing).toContain(text)
   for (const text of ['route-open', '10:29', '10:46', '中央線']) expect(briefing).not.toContain(text)
   expect(briefing).toContain('data-physical-state="stationary"')
+  expect(briefing).toContain('18秒間、静止を維持')
   expect(briefing).toContain('実験者にお知らせください')
   const noop = () => {}
   const controller = renderToStaticMarkup(<TaskController planned={{ taskId: 'A1', mode: trial.snapshot().mode }} startAllowed run={trial.snapshot()} count={1} elapsedSeconds={0}
@@ -110,8 +111,21 @@ it('shows only the problem before PC start, and retains the same problem with ca
   const candidates = render(trial)
   expect(candidates).toContain('南町駅に最も早く着く便')
   expect(candidates).toContain('10:25')
+  expect(candidates).not.toContain('この課題の動作')
   expect(candidates.match(/data-task-action="route-open-\d"/g)).toHaveLength(3)
   expect(candidates).toContain('data-physical-state="running"')
+})
+
+it('shows the 4-second and 14-second movements only before a timed changing task', () => {
+  for (const [id, description] of [
+    ['A2', '静止で開始 → 4秒で歩行 → 14秒で停止'],
+    ['A3', '歩行で開始 → 4秒で軽いジョギング → 14秒で歩行 → 18秒で停止'],
+  ] as const) {
+    const trial = new TransitTrial(id, 'session', id, 0)
+    expect(render(trial)).toContain(description)
+    trial.present(0); trial.begin(1); trial.present(2)
+    expect(render(trial)).not.toContain(description)
+  }
 })
 
 it('hides inferred and applied states from the PC observer while retaining task controls', () => {
@@ -126,7 +140,7 @@ it('hides inferred and applied states from the PC observer while retaining task 
   expect(html).not.toContain('安定化後の入力：')
   expect(html).toContain('情報表示中')
   expect(html).not.toContain('静止を確認して回答画面へ')
-  trial.advance(15000)
+  trial.advance(18000)
   const stopped = renderToStaticMarkup(<TaskController planned={{ taskId: 'A1', mode: trial.snapshot().mode }} startAllowed run={trial.snapshot()} count={1} elapsedSeconds={15}
     disabled={false} pending={false} onStart={noop} onBegin={noop} onConfirmStopped={noop} />)
   expect(stopped).toContain('静止を確認して回答画面へ')
