@@ -8,10 +8,6 @@ export type TrialTaskId = z.infer<typeof trialTaskIdSchema>
 export const arrivalTimeSchema = z.string().regex(/^(?:[01]\d|2[0-3]):[0-5]\d$/)
 const trainSchema = z.strictObject({ departure: arrivalTimeSchema, arrival: arrivalTimeSchema, destination: z.string().min(1) })
 
-/** The draft tasks are same-day direct trips: a different destination does not serve the target. */
-export function targetTrainIndex(problem: { now: string; to: string; trains: readonly z.infer<typeof trainSchema>[] }): number {
-  return problem.trains.findIndex((train) => train.departure > problem.now && train.destination === problem.to)
-}
 const problemSchema = z.strictObject({
   from: z.string().min(1), to: z.string().min(1), line: z.string().min(1), now: arrivalTimeSchema,
   trains: z.array(trainSchema).length(5),
@@ -49,6 +45,103 @@ export const transitTasks: Record<TrialTaskId, TransitTask> = {
     ['13:37', '13:55', '新町'], ['13:41', '13:54', '岩原'], ['13:44', '14:02', '花田'], ['13:47', '14:05', '新町'], ['13:53', '14:11', '新町'],
   ]),
 }
+
+const delayedTrainSchema = z.strictObject({
+  line: z.string().min(1), departure: arrivalTimeSchema,
+  scheduledDeparture: arrivalTimeSchema.optional(), scheduledArrival: arrivalTimeSchema, arrival: arrivalTimeSchema,
+})
+export function isDelayedTrain({ departure, scheduledDeparture = departure, arrival, scheduledArrival }: z.infer<typeof delayedTrainSchema>): boolean {
+  return departure > scheduledDeparture || arrival > scheduledArrival
+}
+const delayProblemSchema = z.strictObject({
+  from: z.string().min(1), to: z.string().min(1), now: arrivalTimeSchema, trains: z.array(delayedTrainSchema).length(3),
+}).superRefine((problem, context) => {
+  const winner = problem.trains[targetTrainIndex(problem)]
+  if (!winner || new Set(problem.trains.map((train) => train.line)).size !== 3
+    || !problem.trains.some(isDelayedTrain)
+    || problem.trains.some((train) => train.arrival <= train.departure || train.arrival < train.scheduledArrival
+      || (train.scheduledDeparture !== undefined && (train.scheduledDeparture >= train.scheduledArrival || train.scheduledDeparture > train.departure))
+      || (train !== winner && train.departure > problem.now && train.arrival === winner.arrival))) {
+    context.addIssue({ code: 'custom', message: '路線・運行時刻または最も早く到着する便が不整合です。' })
+  }
+})
+type DelayTask = z.infer<typeof delayProblemSchema>
+
+export function targetTrainIndex(problem: TransitTask | DelayTask): number {
+  if ('line' in problem) return problem.trains.findIndex((train) => train.departure > problem.now && train.destination === problem.to)
+  let winner = -1
+  for (const [index, train] of problem.trains.entries()) {
+    if (train.departure > problem.now && (winner < 0 || train.arrival < problem.trains[winner].arrival)) winner = index
+  }
+  return winner
+}
+
+function delayProblem(from: string, to: string, now: string,
+  times: readonly (readonly [line: string, scheduledDeparture: string, scheduledArrival: string, delayMinutes?: number])[]): DelayTask {
+  return delayProblemSchema.parse({ from, to, now,
+    trains: times.map(([line, scheduledDeparture, scheduledArrival, delay = 0]) => ({
+      line, scheduledDeparture, scheduledArrival,
+      departure: addMinutes(scheduledDeparture, delay), arrival: addMinutes(scheduledArrival, delay),
+    })) })
+}
+
+function toMinutes(time: string): number {
+  return Number(time.slice(0, 2)) * 60 + Number(time.slice(3))
+}
+
+export function minutesBetween(from: string, to: string): number {
+  return toMinutes(to) - toMinutes(from)
+}
+
+function addMinutes(time: string, delay: number): string {
+  const minutes = toMinutes(time) + delay
+  return `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`
+}
+
+// Fictional schedules for rehearsal. A/B balance answer positions, not measured difficulty.
+export const delayTasks: Record<TrialTaskId, DelayTask> = {
+  P1: delayProblem('緑丘', '中央公園', '09:05', [
+    ['緑丘線', '09:08', '09:26', 2], ['けやき線', '09:14', '09:27'], ['港北線', '09:18', '09:32'],
+  ]),
+  A1: delayProblem('青葉', '南町', '10:25', [
+    ['青葉線', '10:27', '10:45', 2], ['中央線', '10:31', '10:46'], ['白川線', '10:35', '10:50'],
+  ]),
+  A2: delayProblem('北野', '中原', '11:17', [
+    ['北野線', '11:19', '11:39', 3], ['高田線', '11:23', '11:43'], ['中原線', '11:28', '11:41'],
+  ]),
+  A3: delayProblem('山手', '大町', '13:36', [
+    ['山手線', '13:38', '13:53', 2], ['川原線', '13:43', '13:57'], ['桜田線', '13:47', '14:03'],
+  ]),
+  B1: delayProblem('若葉', '東町', '10:27', [
+    ['若葉線', '10:30', '10:45'], ['東町線', '10:29', '10:43', 3], ['北浜線', '10:34', '10:44'],
+  ]),
+  B2: delayProblem('南野', '本町', '11:19', [
+    ['南野線', '11:22', '11:38', 2], ['高野線', '11:26', '11:43'], ['本町線', '11:30', '11:47'],
+  ]),
+  B3: delayProblem('海田', '新町', '13:38', [
+    ['海田線', '13:40', '13:57', 4], ['岩原線', '13:44', '13:59'], ['新町線', '13:48', '14:02'],
+  ]),
+}
+
+export function delayTaskForSession(taskId: TrialTaskId, sessionId: string): DelayTask {
+  const problem = delayTasks[taskId]
+  // Use the random session ID to assign the same task number in both conditions and on retries.
+  const assignment = Number(`0x${sessionId.slice(0, 8)}`) % 6
+  if (taskId === 'P1' || Number(taskId[1]) !== assignment % 3 + 1) return problem
+
+  const winner = targetTrainIndex(problem)
+  const distractors = problem.trains.map((_, index) => index).filter((index) => index !== winner)
+  const departedIndex = distractors[Math.floor(assignment / 3)]
+  const trains = problem.trains.map((train, index) => {
+    if (index !== departedIndex) return train
+    const offset = minutesBetween(train.departure, problem.now) - 2
+    return { ...train, departure: addMinutes(train.departure, offset), arrival: addMinutes(train.arrival, offset),
+      scheduledDeparture: train.scheduledDeparture === undefined ? undefined : addMinutes(train.scheduledDeparture, offset),
+      scheduledArrival: addMinutes(train.scheduledArrival, offset) }
+  })
+  return delayProblemSchema.parse({ ...problem, trains })
+}
+
 export const taskTiming = Object.freeze({ displayMs: 15_000, answerMs: 10_000 })
 export const taskInstructionTiming = Object.freeze({ firstMs: 4_000, secondMs: 11_000 })
 const time = z.number().finite().nonnegative()
@@ -69,7 +162,8 @@ const selectionTaskBase = z.strictObject({
   outcome: z.enum(['correct', 'incorrect', 'unknown', 'unanswered']).nullable(),
   abortReason: z.string().nullable(), events: z.array(eventSchema).max(500),
 })
-function validateTaskTimes(value: Omit<z.infer<typeof selectionTaskBase>, 'mode' | 'phase' | 'events' | 'taskId'> & { events: readonly { atMs: number }[] }, context: z.RefinementCtx) {
+function validateTaskTimes(value: Pick<z.infer<typeof selectionTaskBase>, 'requestedAtMs' | 'startedAtMs' | 'hiddenAtMs' | 'stopConfirmedAtMs'
+  | 'answerShownAtMs' | 'endedAtMs' | 'selectedAtMs' | 'selectedShownAtMs'> & { events: readonly { atMs: number }[] }, context: z.RefinementCtx) {
   const times = [value.requestedAtMs, value.startedAtMs, value.hiddenAtMs, value.stopConfirmedAtMs, value.answerShownAtMs, value.endedAtMs]
     .filter((t): t is number => t !== null)
   if (times.some((t, i) => i > 0 && t < times[i - 1])
@@ -97,7 +191,7 @@ function validateUiTimes(value: { requestedAtMs: number; uiLog: z.infer<typeof u
 export const previousAdaptiveTaskRunSchema = adaptiveTaskBase.superRefine(validateTaskTimes).superRefine(validateUiTimes)
 const currentPhase = z.enum(['briefing', ...phase.options])
 const currentEventSchema = eventSchema.extend({
-  type: z.enum(['briefing-shown', 'view-requested', 'cue-scheduled', 'cue-cancelled', 'cue-unavailable', ...eventSchema.shape.type.options]), phase: currentPhase,
+  type: z.enum(['briefing-shown', 'view-requested', 'detail-opened', 'list-returned', 'cue-scheduled', 'cue-cancelled', 'cue-unavailable', ...eventSchema.shape.type.options]), phase: currentPhase,
   cueKind: z.enum(['change', 'finish']).optional(), plannedAtMs: time.optional(), audioTimeSeconds: time.optional(),
 }).superRefine((event, context) => {
   if (event.type.startsWith('cue-') && (event.cueKind === undefined || event.plannedAtMs === undefined
@@ -110,7 +204,7 @@ const briefingTaskBase = adaptiveTaskBase.extend({
   briefingShownAtMs: time.nullable(), beginRequestedAtMs: time.nullable(),
   events: z.array(currentEventSchema).max(500),
 })
-function validateBriefingTimes(value: z.infer<typeof briefingTaskBase> | (Omit<z.infer<typeof briefingTaskBase>, 'taskId'> & { taskId: TrialTaskId }), context: z.RefinementCtx) {
+function validateBriefingTimes(value: Pick<z.infer<typeof briefingTaskBase>, 'requestedAtMs' | 'briefingShownAtMs' | 'beginRequestedAtMs' | 'startedAtMs' | 'phase'>, context: z.RefinementCtx) {
   const times = [value.requestedAtMs, value.briefingShownAtMs, value.beginRequestedAtMs, value.startedAtMs]
     .filter((t): t is number => t !== null)
   if (times.some((t, index) => index > 0 && t < times[index - 1])
@@ -121,9 +215,22 @@ function validateBriefingTimes(value: z.infer<typeof briefingTaskBase> | (Omit<z
   }
 }
 export const previousBriefingTaskRunSchema = briefingTaskBase.superRefine(validateTaskTimes).superRefine(validateUiTimes).superRefine(validateBriefingTimes)
-export const taskRunSchema = briefingTaskBase.extend({
+const practiceTaskBase = briefingTaskBase.extend({
   taskId: trialTaskIdSchema, purpose: z.enum(['main', 'practice']),
-}).superRefine(validateTaskTimes).superRefine(validateUiTimes).superRefine(validateBriefingTimes).superRefine((run, context) => {
+})
+const routeIndex = z.int().min(0).max(2)
+const delayTaskRunBase = practiceTaskBase.extend({
+  kind: z.literal('earliest-arrival'), problem: delayProblemSchema,
+  openTrainIndex: routeIndex.nullable(), selectedTrainIndex: routeIndex.nullable(),
+}).superRefine((run, context) => {
+  if ((run.openTrainIndex !== null && run.phase !== 'viewing') || run.events.some((event) =>
+    (event.trainIndex !== undefined && event.trainIndex > 2)
+    || ((event.type === 'detail-opened' || event.type === 'list-returned') && (event.trainIndex === undefined || event.phase !== 'viewing')))) {
+    context.addIssue({ code: 'custom', message: '路線の詳細・選択ログが不整合です。' })
+  }
+})
+export const taskRunSchema = z.discriminatedUnion('kind', [practiceTaskBase, delayTaskRunBase])
+  .superRefine(validateTaskTimes).superRefine(validateUiTimes).superRefine(validateBriefingTimes).superRefine((run, context) => {
   if ((run.taskId === 'P1') !== (run.purpose === 'practice')) context.addIssue({ code: 'custom', message: '練習と本番の課題区分が一致しません。' })
 })
 export type TaskRun = z.infer<typeof taskRunSchema>

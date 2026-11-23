@@ -19,7 +19,7 @@ function complete(id: string, taskId: TrialTaskId, mode: 'normal' | 'automatic',
   const trial = new TransitTrial(id, metadata.sessionId, taskId, now, mode)
   trial.present(now + 1); trial.begin(now + 2, 'phone'); trial.present(now + 3)
   const target = targetTrainIndex(trial.snapshot().problem)
-  trial.select(target, now + 100); trial.present(now + 101)
+  trial.showDetails(target, now + 99); trial.select(target, now + 100); trial.present(now + 101)
   trial.advance(now + 15003); trial.confirmStopped(now + 15004, 'phone'); trial.present(now + 15005)
   trial.answer(trial.snapshot().problem.trains[target]!.arrival, now + 15006)
   return trial.snapshot()

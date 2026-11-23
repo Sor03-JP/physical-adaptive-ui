@@ -453,7 +453,10 @@ export default function Sensor({ identity }: { identity: Identity }) {
     const previous = trial.current?.snapshot()
     if (previous) taskHistory.current.set(previous.id, previous)
     questionnaires.current.dismiss(); renderSurvey(); setDismissedPracticeId(null)
-    trial.current = new TransitTrial(runId, current.metadata.sessionId, taskId, performance.now(), mode)
+    const previousRun = previous ?? continuation.current?.tasks.at(-1)
+    trial.current = new TransitTrial(runId, current.metadata.sessionId, taskId, performance.now(), mode, {
+      kind: previousRun?.kind, originalSessionId: continuation.current?.previousSessionIds[0],
+    })
     trial.current.updateAdaptation(current.latestEstimate, performance.now())
     renderTask()
   }
@@ -535,6 +538,7 @@ export default function Sensor({ identity }: { identity: Identity }) {
       onBegin={phoneFlow ? () => void beginOnPhone() : undefined}
       onPracticeBegin={() => practiceAction('begin')} onPracticeConfirm={() => practiceAction('confirm')} onPracticeFinish={closePractice}
       onConfirmStopped={confirmStoppedOnPhone}
+      onShowDetails={(index) => { trial.current?.showDetails(index, performance.now()); renderTask(); report() }}
       onSelectTrain={(index) => { trial.current?.select(index, performance.now()); renderTask(); report() }}
       onAnswer={(value) => { trial.current?.answer(value, performance.now()); renderTask(); report(); void storage.flush() }}
       onTap={(x, y, action) => { trial.current?.tap(performance.now(), x, y, action) }}

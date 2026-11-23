@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { TransitTrial, taskRunSchema, transitTasks, targetTrainIndex, taskSnapshots } from './tasks'
+import { TransitTrial, taskRunSchema, transitTasks, delayTasks, targetTrainIndex, taskSnapshots, minutesBetween } from './tasks'
 
-function preparedTrial(...args: ConstructorParameters<typeof TransitTrial>) {
-  const trial = new TransitTrial(...args)
-  trial.present(args[3]); trial.begin(args[3])
+function preparedTrial(...[id, sessionId, taskId, time, mode, options = { kind: 'next-departure' }]: ConstructorParameters<typeof TransitTrial>) {
+  const trial = new TransitTrial(id, sessionId, taskId, time, mode, options)
+  trial.present(time); trial.begin(time)
   return trial
 }
 import { TransferCollector, readTransfer, writeTransfer } from './transfer'
@@ -142,6 +142,106 @@ describe('next-departure selection flow', () => {
     const snapshot = preparedTrial('one', 'session', 'A1', 0).snapshot()
     expect(taskRunSchema.safeParse({ ...snapshot, problem: { ...snapshot.problem, now: '10:50' } }).success).toBe(false)
   })
+})
+
+it('compares expected arrivals for boardable trains and balances the winning position in each set', () => {
+  for (const set of ['A', 'B'] as const) {
+    const problems = ([1, 2, 3] as const).map((number) => delayTasks[`${set}${number}`])
+    expect(problems.map(targetTrainIndex).sort()).toEqual([0, 1, 2])
+    expect(problems.some((problem) => {
+      const winner = problem.trains[targetTrainIndex(problem)]
+      return winner.arrival > winner.scheduledArrival
+    })).toBe(true)
+  }
+  expect(targetTrainIndex(delayTasks.A1)).toBe(1)
+  expect(targetTrainIndex({ ...delayTasks.A1, now: '10:31' })).toBe(2)
+  expect(targetTrainIndex({ ...delayTasks.A1, now: '10:35' })).toBe(-1)
+  const trial = preparedTrial('delay', 'session', 'A1', 0, 'normal', { kind: 'earliest-arrival' }).snapshot()
+  const previousTrains = delayTasks.A1.trains.map(({ scheduledDeparture: _scheduledDeparture, ...train }) => train)
+  expect(taskRunSchema.safeParse({ ...trial, problem: { ...delayTasks.A1, trains: previousTrains } }).success).toBe(true)
+  const invalidTrains = delayTasks.A1.trains.map((train) => ({ ...train, scheduledDeparture: '23:59' }))
+  expect(taskRunSchema.safeParse({ ...trial, problem: { ...delayTasks.A1, trains: invalidTrains } }).success).toBe(false)
+})
+
+it('applies a single delay to both times for every new train without changing the expected answers', () => {
+  const answers = { P1: '09:27', A1: '10:46', A2: '11:41', A3: '13:55', B1: '10:44', B2: '11:40', B3: '13:59' } as const
+  for (const id of Object.keys(answers) as (keyof typeof answers)[]) {
+    const problem = delayTasks[id]
+    expect(problem.trains[targetTrainIndex(problem)].arrival).toBe(answers[id])
+    for (const train of problem.trains) {
+      expect(train.scheduledDeparture).toBeDefined()
+      expect(minutesBetween(train.scheduledDeparture!, train.departure)).toBe(minutesBetween(train.scheduledArrival, train.arrival))
+    }
+  }
+})
+
+it('assigns one departed distractor at the same task number per condition and keeps it through a retry', () => {
+  for (let pattern = 0; pattern < 6; pattern++) {
+    const session = `${String(pattern).padStart(8, '0')}-0000-4000-8000-000000000000`
+    for (const set of ['A', 'B'] as const) {
+      for (const number of [1, 2, 3] as const) {
+        const id = `${set}${number}` as const
+        const problem = new TransitTrial('first', session, id, 0).snapshot().problem
+        const base = delayTasks[id]
+        const winner = targetTrainIndex(base)
+        const departed = problem.trains.filter((train) => train.departure < problem.now)
+        expect(departed).toHaveLength(number === pattern % 3 + 1 ? 1 : 0)
+        expect(problem.trains[targetTrainIndex(problem)]).toEqual(base.trains[winner])
+        if (departed.length) {
+          const choices = base.trains.filter((_, index) => index !== winner)
+          expect(departed[0]).toMatchObject({ line: choices[Math.floor(pattern / 3)].line })
+          expect(minutesBetween(departed[0].departure, departed[0].arrival))
+            .toBe(minutesBetween(choices[Math.floor(pattern / 3)].departure, choices[Math.floor(pattern / 3)].arrival))
+        }
+        const retry = new TransitTrial('retry', 'continued-session', id, 0, 'normal', { originalSessionId: session })
+        expect(retry.snapshot().problem).toEqual(problem)
+      }
+    }
+    expect(new TransitTrial('practice', session, 'P1', 0).snapshot().problem).toEqual(delayTasks.P1)
+  }
+})
+
+it('records detail navigation separately from final selection and keeps the 15-second timeout', () => {
+  const trial = preparedTrial('delay', 'session', 'A1', 0, 'automatic', { kind: 'earliest-arrival' })
+  trial.present(100)
+  trial.select(1, 150)
+  trial.showDetails(null, 160); trial.showDetails(3, 170)
+  trial.showDetails(1, 200)
+  expect(trial.snapshot()).toMatchObject({ openTrainIndex: 1, selectedTrainIndex: null, selectedAtMs: null })
+  trial.select(2, 210)
+  trial.showDetails(null, 220)
+  trial.showDetails(0, 300); trial.select(0, 310); trial.present(315); trial.showDetails(null, 320)
+  trial.showDetails(1, 400); trial.select(1, 410); trial.present(415); trial.showDetails(null, 420)
+  trial.showDetails(2, 15099); trial.select(2, 15100)
+  expect(trial.snapshot()).toMatchObject({ phase: 'waiting-stop', hiddenAtMs: 15100, openTrainIndex: null,
+    selectedTrainIndex: 1, selectedAtMs: 410, selectedShownAtMs: 415 })
+  trial.confirmStopped(15200); trial.present(15220); trial.answer('10:46', 15400)
+  const result = taskRunSchema.parse(trial.snapshot())
+  expect(result).toMatchObject({ kind: 'earliest-arrival', phase: 'complete', outcome: 'correct', answer: '10:46' })
+  expect(result.events.filter((event) => event.type === 'detail-opened').map((event) => event.trainIndex)).toEqual([1, 0, 1, 2])
+  expect(result.events.filter((event) => event.type === 'list-returned').map((event) => event.trainIndex)).toEqual([1, 0, 1])
+  expect(result.events.filter((event) => event.type === 'train-selected').map((event) => event.trainIndex)).toEqual([0, 1])
+  const collector = new TransferCollector(metadata, 5000)
+  collector.updateTask(result)
+  expect(readTransfer(writeTransfer(collector.export()))).toMatchObject({ tasks: [result] })
+})
+
+it.each([
+  { selected: 0, answer: '10:47', outcome: 'correct' },
+  { selected: 0, answer: '10:46', outcome: 'incorrect' },
+  { selected: null, answer: '10:47', outcome: null },
+  { selected: null, answer: 'unknown', outcome: 'unknown' },
+])('grades $answer against the final selection $selected', ({ selected, answer, outcome }) => {
+  const trial = preparedTrial('delay', 'session', 'A1', 0, 'normal', { kind: 'earliest-arrival' })
+  trial.present(100)
+  if (selected !== null) {
+    trial.showDetails(1, 200); trial.select(1, 210); trial.showDetails(null, 220)
+    trial.showDetails(selected, 230); trial.select(selected, 240)
+  }
+  trial.advance(15100); trial.confirmStopped(15200); trial.present(15220); trial.answer(answer, 15400)
+  const result = taskRunSchema.parse(trial.snapshot())
+  expect(result).toMatchObject({ phase: 'complete', selectedTrainIndex: selected, answer, outcome })
+  expect(targetTrainIndex(result.problem)).toBe(1)
 })
 
 it('retains multiple selection tasks and all timestamps in PC JSON while preserving older file versions', () => {

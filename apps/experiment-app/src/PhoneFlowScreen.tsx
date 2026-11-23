@@ -44,7 +44,7 @@ export default function PhoneFlowScreen({ flow, step, tasks, participantId, conn
       </> : flow.stage === 'consent' ? <>
         <h1>実験の説明・注意事項</h1>
         <dl className="consent-guide">
-          <div><dt>電車を選ぶ</dt><dd>想定現在時刻と目的地を見て、目的地行きで次に発車する電車をタップし、到着時刻を確認してください。</dd></div>
+          <div><dt>最も早く着く便を選ぶ</dt><dd>今から乗れる3路線の便を、遅延を含めて比べます。詳細で到着見込みを確認し、最も早く着く便の「この便を選ぶ」を押してください。</dd></div>
           <div><dt>立ち止まって回答する</dt><dd>問題文を理解してから候補を表示します。15秒後に情報が消えます。実験者が停止を確認したら、到着時刻を4桁で10秒以内に回答してください。不明なら「分からない」を選んでください。</dd></div>
           <div><dt>実験者の指示に従う</dt><dd>早く選んでも、指示された動作を続けます。短い音は切替、長い音は表示終了の合図です。音だけで動かず、実験者の指示を聞いてください。</dd></div>
         </dl>
@@ -62,7 +62,7 @@ export default function PhoneFlowScreen({ flow, step, tasks, participantId, conn
       </> : flow.stage === 'tutorial' ? <>
         <h1>チュートリアル {flow.tutorialPage + 1}／3</h1>
         {flow.tutorialPage === 0 ? <>
-          <p>問題文の時刻と目的地を読み、電車の行をタップして選びます。選び直しもできます。</p>
+          <p>一覧の時刻は定刻です。路線をタップして発車・到着見込みを確認し、「一覧に戻る」で他の路線を見比べます。詳細の「この便を選ぶ」で選択でき、選び直しもできます。</p>
           <p>情報が消えたら、安全に立ち止まってください。実験者が停止を確認した後、到着時刻を4桁で回答します。例えば09:30は0930です。</p>
           <button className="primary" disabled={pending || !connected} onClick={onTutorialNext}>操作方法を確認した</button>
         </> : flow.tutorialPage === 1 ? <>

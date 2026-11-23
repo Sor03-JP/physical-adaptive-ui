@@ -1,6 +1,6 @@
 import { AdaptationPolicy } from '@physical-adaptive/core'
 import type { MotionEstimate } from '@physical-adaptive/device-motion'
-import { transitTasks, taskTiming, targetTrainIndex, arrivalTimeSchema } from './task-schema'
+import { delayTaskForSession, transitTasks, taskTiming, targetTrainIndex, arrivalTimeSchema } from './task-schema'
 import type { TrialTaskId, TaskRun, TaskEvent } from './task-schema'
 import { uiConfig } from './adaptation'
 import type { ExperimentMode, PresentationMetrics, RenderedTaskContext } from './adaptation'
@@ -25,14 +25,20 @@ export class TransitTrial {
   private readonly policy: AdaptationPolicy
   private presentedUiKey = ''
 
-  constructor(id: string, sessionId: string, taskId: TrialTaskId, requestedAtMs: number, mode: ExperimentMode = 'normal') {
+  constructor(id: string, sessionId: string, taskId: TrialTaskId, requestedAtMs: number, mode: ExperimentMode = 'normal', {
+    kind = 'earliest-arrival', originalSessionId = sessionId,
+  }: { kind?: TaskRun['kind']; originalSessionId?: string } = {}) {
     this.policy = new AdaptationPolicy(uiConfig)
-    this.run = { flow: 'briefing-first', kind: 'next-departure', id, sessionId, taskId, purpose: taskId === 'P1' ? 'practice' : 'main', mode, phase: 'briefing', timing: { ...taskTiming },
-      problem: structuredClone(transitTasks[taskId]), requestedAtMs, briefingShownAtMs: null, beginRequestedAtMs: null, startedAtMs: null, hiddenAtMs: null,
+    const initial: Omit<TaskRun, 'kind' | 'problem'> = {
+      flow: 'briefing-first', id, sessionId, taskId, purpose: taskId === 'P1' ? 'practice' : 'main', mode, phase: 'briefing', timing: { ...taskTiming },
+      requestedAtMs, briefingShownAtMs: null, beginRequestedAtMs: null, startedAtMs: null, hiddenAtMs: null,
       stopConfirmedAtMs: null, answerShownAtMs: null, endedAtMs: null, selectedTrainIndex: null,
       selectedAtMs: null, selectedShownAtMs: null, answer: null, outcome: null, abortReason: null, events: [],
       uiConfig: structuredClone(uiConfig), uiDecision: { decidedAtMs: requestedAtMs, estimateAtMs: null, inputState: 'unknown',
         state: 'stationary', reason: mode === 'normal' ? 'fixed' : 'initial', stale: false }, uiLog: [] }
+    this.run = kind === 'earliest-arrival'
+      ? { ...initial, kind, problem: structuredClone(delayTaskForSession(taskId, originalSessionId)), openTrainIndex: null }
+      : { ...initial, kind, problem: structuredClone(transitTasks[taskId]) }
   }
 
   get complete(): boolean { return this.run.phase === 'complete' || this.run.phase === 'aborted' }
@@ -59,8 +65,9 @@ export class TransitTrial {
   }
 
   present(now: number, metrics: PresentationMetrics | null = null, rendered?: RenderedTaskContext): boolean {
+    const openTrainIndex = this.run.kind === 'earliest-arrival' ? this.run.openTrainIndex : null
     if (rendered && (rendered.phase !== this.run.phase || rendered.decisionKey !== JSON.stringify(this.run.uiDecision)
-      || rendered.selectedTrainIndex !== this.run.selectedTrainIndex)) return true
+      || rendered.selectedTrainIndex !== this.run.selectedTrainIndex || rendered.openTrainIndex !== openTrainIndex)) return true
     const before = this.run.phase
     this.advance(now)
     // A deadline may change the model before the old DOM commit finishes. Log the new surface only after its own render.
@@ -82,7 +89,7 @@ export class TransitTrial {
       if (this.run.phase === 'viewing' && this.run.selectedTrainIndex === targetTrainIndex(this.run.problem)) this.run.selectedShownAtMs ??= now
       changed = true
     }
-    const key = `${this.run.phase}/${JSON.stringify(this.run.uiDecision)}/${JSON.stringify(metrics)}`
+    const key = `${this.run.phase}/${openTrainIndex}/${JSON.stringify(this.run.uiDecision)}/${JSON.stringify(metrics)}`
     if (key !== this.presentedUiKey) {
       this.presentedUiKey = key
       if (this.run.uiLog.length >= 2000) {
@@ -106,6 +113,7 @@ export class TransitTrial {
   advance(now: number): void {
     if (this.run.phase === 'viewing' && now >= this.run.startedAtMs! + this.run.timing.displayMs) {
       this.run.phase = 'waiting-stop'; this.run.hiddenAtMs = now
+      if (this.run.kind === 'earliest-arrival') this.run.openTrainIndex = null
       this.log('information-hidden', now, this.run.selectedTrainIndex === null ? {} : { trainIndex: this.run.selectedTrainIndex })
     }
     if (this.run.phase === 'answering' && this.run.answerShownAtMs !== null
@@ -115,9 +123,20 @@ export class TransitTrial {
     }
   }
 
+  showDetails(index: number | null, now: number): void {
+    this.advance(now)
+    if (this.run.kind !== 'earliest-arrival' || this.run.phase !== 'viewing') return
+    const trainIndex = index ?? this.run.openTrainIndex
+    if (trainIndex === null || !Number.isInteger(trainIndex) || trainIndex < 0 || trainIndex >= this.run.problem.trains.length
+      || (index !== null && this.run.openTrainIndex !== null)) return
+    this.run.openTrainIndex = index
+    this.log(index === null ? 'list-returned' : 'detail-opened', now, { trainIndex })
+  }
+
   select(index: number, now: number): void {
     this.advance(now)
-    if (this.run.phase !== 'viewing' || !Number.isInteger(index) || index < 0 || index >= this.run.problem.trains.length) return
+    if (this.run.phase !== 'viewing' || !Number.isInteger(index) || index < 0 || index >= this.run.problem.trains.length
+      || (this.run.kind === 'earliest-arrival' && (this.run.openTrainIndex !== index || this.run.selectedTrainIndex === index))) return
     this.run.selectedTrainIndex = index
     this.log('train-selected', now, { trainIndex: index })
     if (this.run.phase === 'viewing' && index === targetTrainIndex(this.run.problem)) this.run.selectedAtMs ??= now
@@ -133,8 +152,11 @@ export class TransitTrial {
     this.advance(now)
     if (this.run.phase !== 'answering' || this.run.answerShownAtMs === null
       || (value !== 'unknown' && !arrivalTimeSchema.safeParse(value).success)) return
-    const correct = this.run.problem.trains[targetTrainIndex(this.run.problem)].arrival
-    this.run.answer = value; this.run.outcome = value === 'unknown' ? 'unknown' : value === correct ? 'correct' : 'incorrect'
+    const { kind, problem, selectedTrainIndex } = this.run
+    const answerIndex = kind === 'earliest-arrival' ? selectedTrainIndex : targetTrainIndex(problem)
+    this.run.answer = value
+    if (value === 'unknown') this.run.outcome = 'unknown'
+    else if (answerIndex !== null) this.run.outcome = value === problem.trains[answerIndex].arrival ? 'correct' : 'incorrect'
     this.run.phase = 'complete'; this.run.endedAtMs = now; this.log('answer-submitted', now)
   }
 
@@ -146,6 +168,7 @@ export class TransitTrial {
   abort(now: number, reason: string): void {
     if (this.complete) return
     this.run.phase = 'aborted'; this.run.endedAtMs = now; this.run.abortReason = reason
+    if (this.run.kind === 'earliest-arrival') this.run.openTrainIndex = null
     this.run.events.push({ type: 'aborted', atMs: now, phase: 'aborted' })
   }
 }

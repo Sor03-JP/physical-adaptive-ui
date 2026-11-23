@@ -9,7 +9,7 @@ import QuestionnaireScreen from './QuestionnaireScreen'
 function tasks(mode: 'normal' | 'automatic', set: 'A' | 'B', start: number) {
   return ([1, 2, 3] as const).map((n) => {
     const time = start + (n - 1) * 21000
-    const trial = new TransitTrial(`${mode}-${set}${n}`, 'session', `${set}${n}`, time, mode)
+    const trial = new TransitTrial(`${mode}-${set}${n}`, 'session', `${set}${n}`, time, mode, { kind: 'next-departure' })
     trial.present(time); trial.begin(time + 1); trial.present(time + 2)
     trial.advance(time + 20002); trial.confirmStopped(time + 20003); trial.present(time + 20004)
     trial.answer('unknown', time + 20005)
