@@ -181,6 +181,8 @@ body:has(.task-screen, .mobile-screen) { overflow: hidden; }
 .phone-flow-screen .callout h2 { margin: 0 0 4px; font-size: 16px; }
 .phone-flow-screen .callout > p { margin: 0; }
 .consent-actions { margin-top: 20px; }
+.tutorial-demo { margin-block: 16px; padding: 0 12px; border: 1px solid var(--line); border-radius: 8px; }
+.tutorial-demo video { display: block; width: min(100%, 320px); height: auto; margin: 0 auto 12px; border-radius: 6px; }
 .consent-choice {
   display: flex;
   gap: 10px;

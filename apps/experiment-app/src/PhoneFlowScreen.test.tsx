@@ -3,12 +3,13 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import PhoneFlowScreen from './PhoneFlowScreen'
 import { createPhoneFlow } from './phone-flow'
 
+const noop = () => {}
+const props = { flow: createPhoneFlow('session'), step: null, tasks: [], participantId: 'test01', connected: true,
+  interrupted: false, recovered: false, stopped: false, pending: false, error: '', transferState: '', audioControls: null, sensorReady: true,
+  onPrepare: noop, onAccept: noop, onTutorialNext: noop, onPractice: noop, onPracticeComplete: noop, onNext: noop,
+  onReconnect: noop, onResume: noop, onRestart: noop, onConfirmMovement: noop, onStop: noop }
+
 it('requires explicit consent and presents resume/reset or retry/reset without silently restarting', () => {
-  const noop = () => {}
-  const props = { flow: createPhoneFlow('session'), step: null, tasks: [], participantId: 'test01', connected: true,
-    interrupted: false, recovered: false, stopped: false, pending: false, error: '', transferState: '', audioControls: null, sensorReady: true,
-    onPrepare: noop, onAccept: noop, onTutorialNext: noop, onPractice: noop, onPracticeComplete: noop, onNext: noop,
-    onReconnect: noop, onResume: noop, onRestart: noop, onConfirmMovement: noop, onStop: noop }
   const consent = renderToStaticMarkup(<PhoneFlowScreen {...props} />)
   expect(consent).toContain('type="checkbox"')
   expect(consent).not.toContain('checked=""')
@@ -25,4 +26,15 @@ it('requires explicit consent and presents resume/reset or retry/reset without s
   expect(mismatch).toContain('再接続して転送を確認')
   expect(mismatch).toContain('記録を残して最初からやり直す')
   expect(mismatch).not.toContain('転送・内容確認が完了しました')
+})
+
+it('offers the video on the instructions page without requiring playback to continue', () => {
+  const flow = { ...props.flow, stage: 'tutorial' as const, syncedAtMs: 1, consentedAtMs: 2 }
+  const instructions = renderToStaticMarkup(<PhoneFlowScreen {...props} flow={flow} />)
+  expect(instructions).toContain('<details class="tutorial-demo">')
+  expect(instructions).toMatch(/<video[^>]+transit-tutorial\.mp4[^>]+controls=""[^>]+preload="none"/)
+  expect(instructions).not.toContain('autoplay=""')
+  expect(instructions).not.toContain('disabled="">操作方法を確認した')
+  const practice = renderToStaticMarkup(<PhoneFlowScreen {...props} flow={{ ...flow, tutorialPage: 2 }} />)
+  expect(practice).not.toContain('<video')
 })

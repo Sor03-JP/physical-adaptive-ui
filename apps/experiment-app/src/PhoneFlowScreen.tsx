@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import tutorialVideo from './assets/transit-tutorial.mp4'
 import { taskTiming } from './task-schema'
 import type { ReactNode } from 'react'
 import type { PhoneFlow } from './phone-flow'
@@ -65,6 +66,12 @@ export default function PhoneFlowScreen({ flow, step, tasks, participantId, conn
         {flow.tutorialPage === 0 ? <>
           <p>一覧の時刻は定刻です。路線をタップして発車・到着見込みを確認し、「一覧に戻る」で他の路線を見比べます。詳細の「この便を選ぶ」で選択でき、選び直しもできます。</p>
           <p>情報が消えたら、安全に立ち止まってください。実験者が停止を確認した後、到着時刻を4桁で回答します。例えば09:30は0930です。</p>
+          <details className="tutorial-demo">
+            <summary>操作例の動画を見る</summary>
+            <video src={tutorialVideo} width={540} height={900} controls playsInline preload="none">
+              動画を再生できない場合は、上の説明を読んで進んでください。
+            </video>
+          </details>
           <button className="primary" disabled={pending || !connected} onClick={onTutorialNext}>操作方法を確認した</button>
         </> : flow.tutorialPage === 1 ? <>
           {audioControls}
