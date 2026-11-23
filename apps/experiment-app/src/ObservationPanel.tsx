@@ -18,21 +18,20 @@ export default function ObservationPanel({ log, hidden, onHidden, run, elapsedMs
   const lastTime = (event: ResearchEvent | undefined) => event ? `${(event.controllerAtMs / 1000).toFixed(1)}秒（PC記録時刻）` : ''
   return <section>
     <h2>動作の案内</h2>
-    <p>切替はiPhoneの短い音、表示終了は長い音を合図に口頭で指示してください。PCの秒数は通信で遅れるため、指示の基準には使いません。</p>
+    <p>動作の切替はiPhoneの短い音、候補表示の終了と停止は長い音が合図です。PCの秒数は進行の目安です。安全のために必要なときは声をかけてください。</p>
     {!guide && <p className="notice" role="status">動作の案内は待機中です。本番課題の回答終了後に、動作が予定どおりだったか確認してください。</p>}
     {guide && <div className="movement-guide" aria-label="予定の動作">
-      <p>{run?.phase === 'briefing' || run?.phase === 'preparing' ? '開始時の動作' : 'いま案内する動作（予定）'}</p>
+      <p>{run?.phase === 'briefing' || run?.phase === 'preparing' ? '開始時の動作' : '現在の動作（予定）'}</p>
       <p className="movement-current">{movementLabels[guide.state]}</p>
       {guide.next ? <p>次は{guide.next.atMs / 1000}秒で「{movementLabels[guide.next.state]}」
         {guide.elapsedMs !== null && `（あと${Math.max(0, (guide.next.atMs - guide.elapsedMs) / 1000).toFixed(1)}秒）`}</p>
         : <p>{run?.phase === 'waiting-stop' || run?.phase === 'answering' ? '安全に停止してから回答へ進みます。' : '表示終了まで、この動作を続けます。'}</p>}
       <p><small>実際の動作を見て確認してください。予定を正解として自動記録しません。時間はiPhoneの最新報告を基準にしています。</small></p>
     </div>}
-    {run?.purpose === 'practice' && <p>練習中です。実験者の案内で動き、実際の足運びだけを確認してください。</p>}
-    <p>口頭で案内しながら動作を目視してください。途中のボタン入力は不要です。回答終了後に「予定どおり／ずれあり」を記録します。</p>
+    <p>課題中は動作を目視してください。回答終了後に「予定どおり／ずれあり」を記録します。</p>
     <details className="observation-history"><summary>記録履歴・出力（観察{observations}件／指示{events.length - observations}件）</summary>
       <p>目視確認は端末内保存の対象です。終了後、PCの「保存」から全記録JSONを出力してください。アンケートCSVには含まれません。</p>
-      <p>JSONには目視の入力時刻・動作・課題ID・最後に届いた課題段階を記録します。動作予定の設定は observationProtocol、終了後の確認は movementConfirmations、開始状態・回答前の静止確認は research.events に分けます。口頭指示と変化開始の実時刻は入力しません。</p>
+      <p>JSONには目視の入力時刻・動作・課題ID・最後に届いた課題段階を記録します。動作予定の設定は observationProtocol、終了後の確認は movementConfirmations、開始状態・回答前の静止確認は research.events に分けます。動作が変わり始めた実時刻は記録しません。</p>
       <p><small>以下は最近の5件。全件はJSONの research.events に保存されます。時刻はPC基準であり、動作開始の正解時刻ではありません。</small></p>
       {events.length ? <ol>{events.slice(-5).map((event, index) => <li key={index}>
         {event.kind === 'instruction' ? '指示' : '観察'}：{eventLabel(event)} ／ {lastTime(event)} ／ {event.reportedPhase ?? '課題外'}

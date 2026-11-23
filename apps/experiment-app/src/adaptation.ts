@@ -21,7 +21,10 @@ export const presentationMetricsSchema = z.strictObject({
   rowHeightPx: z.number().finite().positive().nullable(), fontSizePx: z.number().finite().positive().nullable(),
   viewportHeightPx: z.number().finite().positive(),
 })
-export interface RenderedTaskContext { readonly phase: string; readonly decisionKey: string; readonly selectedTrainIndex: number | null }
+export interface RenderedTaskContext {
+  readonly phase: string; readonly decisionKey: string; readonly selectedTrainIndex: number | null
+  readonly openTrainIndex: number | null
+}
 export type PresentationMetrics = z.infer<typeof presentationMetricsSchema>
 export const uiLogSchema = z.strictObject({
   ...uiDecisionSchema.shape, appliedAtMs: time, appliedState: displayStateSchema,

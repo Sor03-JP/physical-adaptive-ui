@@ -24,7 +24,7 @@ import QuestionnaireController from './QuestionnaireController'
 import type { SurveyTarget } from './questionnaire'
 import ObservationPanel from './ObservationPanel'
 import type { ResearchEvent } from './research-log'
-import { observationGuide } from './observation-plan'
+import { movementPlanText, observationGuide } from './observation-plan'
 import { stateLabels } from './adaptation'
 import type { ExperimentMode } from './adaptation'
 import type { TaskId } from './tasks'
@@ -488,7 +488,7 @@ export default function Controller({ identity }: { identity: Identity }) {
       {active && <button className="stop-recording" disabled={!!panel.pending} onClick={stop}>中断して記録停止</button>}
     </div>
     {[...new Set([presence.error, error, storage.error, status?.storage.error].filter(Boolean))].map((text) => <p className="error controller-alert" role="alert" key={text}>{text}</p>)}
-    {unavailable && recording && <p className="notice controller-alert">通信が切れています。iPhoneの課題計測・合図音・端末内保存は続きます。PCの秒数で指示せず、iPhoneの音を合図にしてください。画面を更新せず接続が戻るのを待つと、未受信データを回収します。</p>}
+    {unavailable && recording && <p className="notice controller-alert">通信が切れています。iPhoneの課題計測・合図音・端末内保存は続きます。画面を更新せず接続が戻るのを待つと、未受信データを回収します。</p>}
     {recovery && <p className="notice controller-alert">iPhone更新による中断記録です。保存済みデータを回収してください。途中課題は自動再開しません。</p>}
     {!autonomous && <ExperimentProgress index={progress.index} />}
     <div className="controller-workspace">
@@ -507,7 +507,7 @@ export default function Controller({ identity }: { identity: Identity }) {
           </div>
         </> : waitingForPhone ? <p role="status">同じ接続コードのiPhoneを待っています。現在の記録は保持しています。必要なデータは「詳細・トラブル対応」から出力できます。</p> : <>
           {autonomous && active && <>
-            <p>説明・同意、チュートリアル、本番課題とアンケートはiPhoneで進めてください。実験者は監視と開始・停止・課題後の動作確認を行います。</p>
+            <p>説明・同意、チュートリアル、本番課題とアンケートはiPhoneで進めてください。</p>
             <p>本番中は通信が切れても端末内で記録します。最後のアンケート後に同じWi-Fiへ戻ると、全記録を回収して内容を確認します。</p>
           </>}
           {!autonomous && progress.index === 1 && <><p className="status">{run?.purpose === 'practice' && !['complete', 'aborted'].includes(run.phase) ? 'iPhoneで練習中です。' : 'iPhoneの「練習問題を表示」から1問練習してください。'}</p>
@@ -565,9 +565,22 @@ export default function Controller({ identity }: { identity: Identity }) {
           onSave={(input) => void confirmMovement(input)} />}
         {message && <p className="success" role="status">{message}</p>}
       </section>
-      {active && recording && !autonomous && <div className="experiment-observation">
+      {active && recording && !autonomous && !waitingForPhone && <div className="experiment-observation">
         <ObservationPanel run={run} elapsedMs={taskElapsedMs} log={research}
           hidden={hideInference} onHidden={setHideInference} />
+      </div>}
+      {(!recording || (autonomous && active) || waitingForPhone) && <div className="experiment-observation">
+        <section>
+          <h2>練習・本番の動作予定</h2>
+          <dl>
+            <dt>練習</dt><dd>{movementPlanText('P1', run?.timing.displayMs)}</dd>
+            <dt>課題1</dt><dd>{movementPlanText('A1', run?.timing.displayMs)}</dd>
+            <dt>課題2</dt><dd>{movementPlanText('A2', run?.timing.displayMs)}</dd>
+            <dt>課題3</dt><dd>{movementPlanText('A3', run?.timing.displayMs)}</dd>
+          </dl>
+          <p>事前にiPhoneで合図音を試聴し、音量を確認してください。動作の切替は短い音、候補表示の終了と停止は長い音が合図です。安全のために必要なときは声をかけてください。</p>
+          <p>開始時の姿勢と回答前の停止を目視で確認してください。本番では、停止を確認したらiPhoneで回答画面へ進み、回答後に動作が予定どおりだったかを記録します。</p>
+        </section>
       </div>}
     </div>
     <details ref={details} className="controller-details"><summary>詳細・トラブル対応</summary>

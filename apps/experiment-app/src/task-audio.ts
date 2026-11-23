@@ -1,10 +1,11 @@
-import { taskInstructionTiming } from './task-schema'
+import { movementPlan } from './observation-plan'
 import type { TaskRun } from './task-schema'
 import type { TransitTrial } from './tasks'
 
 export function taskCues(run: Pick<TaskRun, 'taskId' | 'timing'>) {
-  const changes = run.taskId.endsWith('1') ? [] : [taskInstructionTiming.firstMs, taskInstructionTiming.secondMs]
-  return [...changes.map((offsetMs) => ({ kind: 'change' as const, offsetMs })), { kind: 'finish' as const, offsetMs: run.timing.displayMs }]
+  const finish = run.timing.displayMs
+  const changes = movementPlan(run.taskId, finish).filter(({ atMs }) => atMs > 0 && atMs < finish)
+  return [...changes.map(({ atMs }) => ({ kind: 'change' as const, offsetMs: atMs })), { kind: 'finish' as const, offsetMs: finish }]
 }
 
 /** Schedule on the audio clock once, independently of React renders and PC traffic. */

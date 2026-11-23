@@ -1,33 +1,33 @@
 import { renderToStaticMarkup } from 'react-dom/server'
 import { expect, it } from 'vitest'
-import { canStartPractice, TransitTrial, transitTasks, targetTrainIndex, taskRunSchema } from './tasks'
+import { canStartPractice, TransitTrial, delayTasks, targetTrainIndex, taskRunSchema } from './tasks'
 import { QuestionnaireBook, conditionTaskIds } from './questionnaire'
 import { TransferCollector, readTransfer, writeTransfer } from './transfer'
 import TransitTaskScreen from './TransitTaskScreen'
 
 function render(trial: TransitTrial) {
   const noop = () => {}
-  return renderToStaticMarkup(<TransitTaskScreen run={trial.snapshot()} onPresent={noop} onAdvance={noop}
+  return renderToStaticMarkup(<TransitTaskScreen run={trial.snapshot()} onPresent={noop} onAdvance={noop} onShowDetails={noop}
     onSelectTrain={noop} onAnswer={noop} onTap={noop} onStop={noop}
     onPracticeBegin={noop} onPracticeConfirm={noop} onPracticeFinish={noop} />)
 }
 function completedPractice(id = 'practice') {
   const trial = new TransitTrial(id, 'session', 'P1', 0, 'automatic')
   trial.present(10); trial.begin(20); trial.present(30)
-  trial.select(0, 40); trial.select(2, 50); trial.present(60)
-  trial.advance(15030); trial.confirmStopped(15040); trial.present(15050); trial.answer('09:26', 15060)
+  trial.showDetails(1, 40); trial.select(1, 50); trial.present(60)
+  trial.advance(18030); trial.confirmStopped(18040); trial.present(18050); trial.answer('09:27', 18060)
   return trial
 }
 
 it('uses different stations, scenario time and train times from all main tasks', () => {
-  const practice = transitTasks.P1
+  const practice = delayTasks.P1
   expect(practice.now).toBe('09:05')
-  expect(practice.trains[targetTrainIndex(practice)]).toMatchObject({ departure: '09:12', arrival: '09:26' })
-  const stations = [practice.from, practice.to, ...practice.trains.map((train) => train.destination)]
+  expect(practice.trains[targetTrainIndex(practice)]).toMatchObject({ departure: '09:14', arrival: '09:27' })
+  const stations = [practice.from, practice.to]
   const times = [practice.now, ...practice.trains.flatMap((train) => [train.departure, train.arrival])]
-  for (const [id, main] of Object.entries(transitTasks)) {
+  for (const [id, main] of Object.entries(delayTasks)) {
     if (id === 'P1') continue
-    for (const station of [main.from, main.to, ...main.trains.map((train) => train.destination)]) expect(stations).not.toContain(station)
+    for (const station of [main.from, main.to]) expect(stations).not.toContain(station)
     for (const time of [main.now, ...main.trains.flatMap((train) => [train.departure, train.arrival])]) expect(times).not.toContain(time)
   }
 })
@@ -35,16 +35,19 @@ it('uses different stations, scenario time and train times from all main tasks',
 it('offers phone controls only during practice and retains the same timed task flow', () => {
   const practice = new TransitTrial('practice', 'session', 'P1', 0, 'automatic')
   expect(render(practice)).toContain('理解したので練習を開始')
+  expect(render(practice)).toContain('18秒間、静止を維持')
   expect(render(practice)).toMatch(/disabled=""[^>]*>理解したので練習を開始/)
   practice.present(10); practice.begin(20); practice.present(30)
   expect(render(practice)).not.toContain('理解したので練習を開始')
-  practice.advance(15029)
+  expect(render(practice)).not.toContain('この課題の動作')
+  practice.showDetails(1, 40); practice.select(1, 50); practice.present(60)
+  practice.advance(18029)
   expect(practice.snapshot().phase).toBe('viewing')
-  practice.advance(15030)
+  practice.advance(18030)
   expect(render(practice)).toContain('立ち止まったので回答へ')
-  practice.confirmStopped(15040); practice.present(15050)
+  practice.confirmStopped(18040); practice.present(18050)
   expect(render(practice)).toContain('回答送信')
-  practice.answer('09:26', 15060)
+  practice.answer('09:27', 18060)
   expect(render(practice)).toContain('練習を閉じる')
   expect(practice.snapshot()).toMatchObject({ taskId: 'P1', purpose: 'practice', mode: 'automatic', outcome: 'correct' })
   expect(taskRunSchema.parse(practice.snapshot())).toEqual(practice.snapshot())
@@ -80,7 +83,7 @@ it('preserves practice and main labels in JSON and reads version 9 without addin
   expect(data.version).toBe(15)
   expect(data.tasks.map((task) => task.purpose)).toEqual(['practice', 'main'])
   expect(readTransfer(writeTransfer(data))).toEqual(data)
-  const { purpose: _purpose, ...previousMain } = main.snapshot()
+  const { purpose: _purpose, ...previousMain } = new TransitTrial('main', 'session', 'A1', 30000, 'normal', { kind: 'next-departure' }).snapshot()
   const { movementConfirmations: _movementConfirmations, observationProtocol: _observationProtocol, management: _management, recovery: _recovery, ...version10 } = data
   const previous = { ...version10, version: 9, tasks: [previousMain] }
   expect(readTransfer(JSON.stringify(previous))).toEqual(previous)

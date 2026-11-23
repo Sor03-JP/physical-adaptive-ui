@@ -1,4 +1,6 @@
 import { useState } from 'react'
+import tutorialVideo from './assets/transit-tutorial.mp4'
+import { taskTiming } from './task-schema'
 import type { ReactNode } from 'react'
 import type { PhoneFlow } from './phone-flow'
 import type { phoneNextStep } from './phone-flow'
@@ -44,9 +46,9 @@ export default function PhoneFlowScreen({ flow, step, tasks, participantId, conn
       </> : flow.stage === 'consent' ? <>
         <h1>実験の説明・注意事項</h1>
         <dl className="consent-guide">
-          <div><dt>電車を選ぶ</dt><dd>想定現在時刻と目的地を見て、目的地行きで次に発車する電車をタップし、到着時刻を確認してください。</dd></div>
-          <div><dt>立ち止まって回答する</dt><dd>問題文を理解してから候補を表示します。15秒後に情報が消えます。実験者が停止を確認したら、到着時刻を4桁で10秒以内に回答してください。不明なら「分からない」を選んでください。</dd></div>
-          <div><dt>実験者の指示に従う</dt><dd>早く選んでも、指示された動作を続けます。短い音は切替、長い音は表示終了の合図です。音だけで動かず、実験者の指示を聞いてください。</dd></div>
+          <div><dt>最も早く着く便を選ぶ</dt><dd>今から乗れる3路線の便を、遅延を含めて比べます。詳細で到着見込みを確認し、最も早く着く便の「この便を選ぶ」を押してください。</dd></div>
+          <div><dt>立ち止まって回答する</dt><dd>問題文を理解してから候補を表示します。{taskTiming.displayMs / 1000}秒後に情報が消えます。実験者が停止を確認したら、到着時刻を4桁で{taskTiming.answerMs / 1000}秒以内に回答してください。不明なら「分からない」を選んでください。</dd></div>
+          <div><dt>音を合図に動作を切り替える</dt><dd>動作の順番は、各課題の問題文に表示します。早く選べた場合もその順番に従い、短い音で次の動作に切り替えてください。長い音が鳴ったら、安全に立ち止まってください。</dd></div>
         </dl>
         <section className="callout notice">
           <h2>安全を優先してください</h2>
@@ -62,14 +64,20 @@ export default function PhoneFlowScreen({ flow, step, tasks, participantId, conn
       </> : flow.stage === 'tutorial' ? <>
         <h1>チュートリアル {flow.tutorialPage + 1}／3</h1>
         {flow.tutorialPage === 0 ? <>
-          <p>問題文の時刻と目的地を読み、電車の行をタップして選びます。選び直しもできます。</p>
+          <p>一覧の時刻は定刻です。路線をタップして発車・到着見込みを確認し、「一覧に戻る」で他の路線を見比べます。詳細の「この便を選ぶ」で選択でき、選び直しもできます。</p>
           <p>情報が消えたら、安全に立ち止まってください。実験者が停止を確認した後、到着時刻を4桁で回答します。例えば09:30は0930です。</p>
+          <details className="tutorial-demo">
+            <summary>操作例の動画を見る</summary>
+            <video src={tutorialVideo} width={540} height={900} controls playsInline preload="none">
+              動画を再生できない場合は、上の説明を読んで進んでください。
+            </video>
+          </details>
           <button className="primary" disabled={pending || !connected} onClick={onTutorialNext}>操作方法を確認した</button>
         </> : flow.tutorialPage === 1 ? <>
-          {audioControls}<p>実験者と一緒に音量と短い音・長い音を確認してください。</p>
+          {audioControls}
           <button className="primary" disabled={pending || !connected} onClick={onTutorialNext}>合図音を確認した</button>
         </> : <>
-          <p>本番とは異なる駅・時刻の問題で、選択から停止後の回答まで練習します。身体の動きは実験者の指示に従ってください。</p>
+          <p>本番とは異なる駅・時刻の問題で、選択から停止後の回答まで練習します。</p>
           <button className="primary" disabled={pending || !connected} onClick={practiceComplete ? onPracticeComplete : onPractice}>
             {practiceComplete ? '練習を終了して本番へ' : '練習問題を表示'}
           </button>
@@ -85,11 +93,9 @@ export default function PhoneFlowScreen({ flow, step, tasks, participantId, conn
         {transferState !== 'verified' && <><button className="primary" disabled={pending} onClick={onReconnect}>再接続して転送を確認</button>{restart}</>}
       </> : <>
         <h1>本番の実験</h1>
-        <p>ここからはPCとの通信が切れても、iPhoneで実験とアンケートを続けられます。音を合図に、実験者が動作を指示します。</p>
-        {step?.kind === 'confirmation' ? <>
-          <p>実験者用：直前の課題の動作を確認してください。</p>
-        </> : step?.kind === 'task' ? <>
-          <p>次は課題{step.taskId.slice(1)}／3です。開始前に実験者が{step.taskId.endsWith('3') ? '歩行' : '静止'}を確認します。</p>
+        <p>ここからはPCとの通信が切れても、iPhoneで実験とアンケートを続けられます。</p>
+        {step?.kind === 'confirmation' ? <p>動作の確認が終わるまでお待ちください。</p> : step?.kind === 'task' ? <>
+          <p>次は課題{step.taskId.slice(1)}／3です。</p>
           <button className="primary" disabled={pending} onClick={onNext}>次の問題文を表示</button>
         </> : step?.kind === 'survey' ? <>
           <p>立ち止まった状態で、{step.target === 'final' ? '最後の比較アンケート' : '直前の3課題のアンケート'}に回答します。</p>

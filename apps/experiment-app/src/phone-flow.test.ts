@@ -19,9 +19,9 @@ function complete(id: string, taskId: TrialTaskId, mode: 'normal' | 'automatic',
   const trial = new TransitTrial(id, metadata.sessionId, taskId, now, mode)
   trial.present(now + 1); trial.begin(now + 2, 'phone'); trial.present(now + 3)
   const target = targetTrainIndex(trial.snapshot().problem)
-  trial.select(target, now + 100); trial.present(now + 101)
-  trial.advance(now + 15003); trial.confirmStopped(now + 15004, 'phone'); trial.present(now + 15005)
-  trial.answer(trial.snapshot().problem.trains[target]!.arrival, now + 15006)
+  trial.showDetails(target, now + 99); trial.select(target, now + 100); trial.present(now + 101)
+  trial.advance(now + 18003); trial.confirmStopped(now + 18004, 'phone'); trial.present(now + 18005)
+  trial.answer(trial.snapshot().problem.trains[target]!.arrival, now + 18006)
   return trial.snapshot()
 }
 function session(group: Group = 'G1'): PhoneArchive {
@@ -32,16 +32,16 @@ function session(group: Group = 'G1'): PhoneArchive {
   interrupted.abort(22, 'connection-during-tutorial'); tasks.push(interrupted.snapshot())
   expect(phoneNextStep(participant, tasks, [], flow)).toEqual({ kind: 'practice' })
   tasks.push(complete('practice', 'P1', 'automatic', 2000))
-  let now = 20000
+  let now = 21000
   for (let i = 0; i < 9; i++) {
     const step = phoneNextStep(participant, tasks, book.snapshot(), flow)
     if (step.kind === 'task') {
       const task = complete(`trial-${i}`, step.taskId, step.mode, now)
       tasks.push(task)
       expect(phoneNextStep(participant, tasks, book.snapshot(), flow)).toEqual({ kind: 'confirmation', task })
-      flow = { ...flow, confirmations: [...flow.confirmations, { taskRunId: task.id, status: 'as-planned', deviations: [], confirmedAtPhoneMs: now + 16000 }] }
+      flow = { ...flow, confirmations: [...flow.confirmations, { taskRunId: task.id, status: 'as-planned', deviations: [], confirmedAtPhoneMs: now + 19000 }] }
       expect(task.startedAtMs! - task.beginRequestedAtMs!).toBe(1)
-      expect(task.hiddenAtMs! - task.startedAtMs!).toBe(15000)
+      expect(task.hiddenAtMs! - task.startedAtMs!).toBe(18000)
       expect(task.timing.answerMs).toBe(10000)
       expect(task.events.find((e) => e.type === 'view-requested')?.action).toBe('phone-start-confirmed')
       expect(task.events.find((e) => e.type === 'stop-confirmed')?.action).toBe('phone')

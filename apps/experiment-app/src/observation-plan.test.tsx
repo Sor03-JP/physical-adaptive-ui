@@ -11,14 +11,14 @@ function trial(id: 'A1' | 'A2' | 'A3' | 'P1') {
   return t
 }
 
-it('shows the planned movements at the 4s, 11s and 15s boundaries', () => {
+it('shows the planned movements at the 4s, 14s and 18s boundaries', () => {
   const still = trial('A1').snapshot(), walk = trial('A2').snapshot(), jog = trial('A3').snapshot()
-  expect(observationGuide(still, 14999)).toMatchObject({ state: 'stationary', next: null })
-  for (const [time, state] of [[0, 'stationary'], [3999, 'stationary'], [4000, 'walking'], [10999, 'walking'], [11000, 'stationary']] as const)
+  expect(observationGuide(still, 17999)).toMatchObject({ state: 'stationary', next: null })
+  for (const [time, state] of [[0, 'stationary'], [3999, 'stationary'], [4000, 'walking'], [13999, 'walking'], [14000, 'stationary']] as const)
     expect(observationGuide(walk, time)?.state).toBe(state)
-  for (const [time, state] of [[0, 'walking'], [4000, 'running'], [11000, 'walking'], [15000, 'stationary']] as const)
+  for (const [time, state] of [[0, 'walking'], [4000, 'running'], [14000, 'walking'], [18000, 'stationary']] as const)
     expect(observationGuide(jog, time)?.state).toBe(state)
-  expect(observationGuide(jog, 5000)?.next).toEqual({ atMs: 11000, state: 'walking' })
+  expect(observationGuide(jog, 5000)?.next).toEqual({ atMs: 14000, state: 'walking' })
   expect(observationGuide({ ...jog, phase: 'briefing' }, 12000)).toMatchObject({ state: 'walking', elapsedMs: null })
   for (const phase of ['waiting-stop', 'answering'] as const)
     expect(observationGuide({ ...jog, phase }, 0)).toMatchObject({ state: 'stationary', next: null })
@@ -32,7 +32,7 @@ it('does not infer confirmations from the schedule and keeps conflicting observa
   const before = log.snapshot(), noop = () => {}
   const html = renderToStaticMarkup(<ObservationPanel log={before} run={run} elapsedMs={5000}
     hidden onHidden={noop} />)
-  expect(html).toContain('いま案内する動作（予定）')
+  expect(html).toContain('現在の動作（予定）')
   expect(html).toContain('movement-current">歩行')
   expect(html).toContain('観察：静止確認')
   expect(html).not.toContain('を指示した</button>')

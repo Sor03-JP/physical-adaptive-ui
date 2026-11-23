@@ -14,7 +14,7 @@ import type { RecordingMetadata, Completion } from './recording-schema'
 import type { MotionSample, MotionEstimate, EstimationConfig } from '@physical-adaptive/device-motion'
 import { summarizeMotionWindow } from '@physical-adaptive/device-motion'
 import { estimateSchema, estimationConfigSchema, hasValidEstimateTimes } from './estimation'
-import { taskRunSchema, previousBriefingTaskRunSchema, previousTaskRunSchema, previousSelectionTaskRunSchema, previousAdaptiveTaskRunSchema, legacyTaskRunSchema } from './task-schema'
+import { instructionTimingFor, taskRunSchema, previousBriefingTaskRunSchema, previousTaskRunSchema, previousSelectionTaskRunSchema, previousAdaptiveTaskRunSchema, legacyTaskRunSchema } from './task-schema'
 import type { TaskRun } from './task-schema'
 import { phoneFlowSchema, phoneNextStep, validPhoneFlow } from './phone-flow'
 import type { PhoneFlow } from './phone-flow'
@@ -256,6 +256,9 @@ export class TransferCollector {
         || (task.events.at(-1)?.atMs ?? task.requestedAtMs) < (previous.events.at(-1)?.atMs ?? previous.requestedAtMs)) return false
     }
     if (!this.tasks.has(task.id) && this.tasks.size >= 100) throw new Error('課題記録の上限に達しました。')
+    if (this.tasks.size === 0 && this.observationProtocol?.method === 'post-task-confirmation') {
+      this.observationProtocol = { ...this.observationProtocol, instructionTiming: { ...instructionTimingFor(task.timing.displayMs) } }
+    }
     this.tasks.set(task.id, structuredClone(task))
     return true
   }

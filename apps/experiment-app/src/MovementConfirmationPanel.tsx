@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import type { TaskRun } from './task-schema'
-import { latestMovementConfirmation, movementConfirmationInputSchema, movementSegments } from './movement-confirmation'
+import { latestMovementConfirmation, movementConfirmationInputSchema, movementSegments, movementSegmentsFor } from './movement-confirmation'
 import type { MovementConfirmationInput } from './movement-confirmation'
 
 export default function MovementConfirmationPanel({ tasks, history, disabled, onSave }: {
@@ -15,7 +15,6 @@ export default function MovementConfirmationPanel({ tasks, history, disabled, on
     task={task} latest={latestMovementConfirmation(history, task.id)} disabled={disabled} onSave={onSave} />
   return <section className="movement-confirmation" aria-label="課題終了後の動作確認">
     <h3>課題終了後の動作確認</h3>
-    <p>候補を表示した15秒間に、指示に応じた動作を実施できたか確認してください。切替時刻を正確に測った記録ではありません。</p>
     {pending.map(form)}
     {confirmed.length > 0 && <details><summary>確認済みの課題を確認・修正（{confirmed.length}件）</summary>
       <p>修正前の内容もJSONに残ります。集計では最後の確認を使います。</p>{confirmed.map(form)}</details>}
@@ -41,12 +40,12 @@ function ConfirmationForm({ task, latest, disabled, onSave }: {
     </div>
     {editing && <>
       {!task.taskId.endsWith('1') && <div><p>ずれがあった区間（複数選択可）</p>
-        {(Object.keys(movementSegments) as (keyof typeof movementSegments)[]).map((segment) => <label key={segment}>
+        {movementSegmentsFor(task).map((segment) => <label key={segment}>
           <input type="checkbox" checked={segments.includes(segment)} onChange={(event) => setSegments(event.currentTarget.checked
             ? segment === 'all' ? ['all'] : [...segments.filter((value) => value !== 'all'), segment]
             : segments.filter((value) => value !== segment))} /> {movementSegments[segment]}
         </label>)}</div>}
-      <label>内容（必須）<textarea value={comment} maxLength={1000} rows={2} placeholder="例：歩行開始の指示が遅れた／途中で立ち止まった"
+      <label>内容（必須）<textarea value={comment} maxLength={1000} rows={2} placeholder="例：歩行への切替が遅れた／途中で立ち止まった"
         onChange={(event) => setComment(event.currentTarget.value)} /></label>
       <button type="button" disabled={!valid} onClick={() => onSave(input)}>確認を保存</button>
     </>}

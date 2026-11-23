@@ -30,10 +30,10 @@ function trial(taskId: 'A1' | 'A2' | 'A3' = 'A3') {
 beforeEach(() => { now = 100; nodes.length = 0; contexts.length = 0; vi.spyOn(performance, 'now').mockImplementation(() => now); vi.stubGlobal('AudioContext', FakeAudioContext) })
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals() })
 
-it('uses only an end cue for stationary tasks and the same 4/11/15-second cues for both UI conditions', () => {
-  expect(taskCues(trial('A1').snapshot())).toEqual([{ kind: 'finish', offsetMs: 15000 }])
+it('uses only an end cue for stationary tasks and the same 4/14/18-second cues for both UI conditions', () => {
+  expect(taskCues(trial('A1').snapshot())).toEqual([{ kind: 'finish', offsetMs: 18000 }])
   expect(taskCues(trial('A2').snapshot())).toEqual(taskCues(trial('A3').snapshot()))
-  expect(taskCues(trial().snapshot()).map((c) => c.offsetMs)).toEqual([4000, 11000, 15000])
+  expect(taskCues(trial().snapshot()).map((c) => c.offsetMs)).toEqual([4000, 14000, 18000])
 })
 
 it('schedules once on the phone audio clock and retains requests, not claims of audible playback, in JSON', async () => {
@@ -42,14 +42,14 @@ it('schedules once on the phone audio clock and retains requests, not claims of 
   nodes.length = 0
   now = 120
   audio.schedule(value); audio.schedule(value)
-  expect(nodes.map((n) => n.start.mock.calls[0][0])).toEqual([13.98, 20.98, 24.98])
+  expect(nodes.map((n) => n.start.mock.calls[0][0])).toEqual([13.98, 23.98, 27.98])
   const events = value.snapshot().events.filter((e) => e.type === 'cue-scheduled')
   expect(events).toHaveLength(3)
-  expect(events.map((e) => e.plannedAtMs)).toEqual([4100, 11100, 15100])
+  expect(events.map((e) => e.plannedAtMs)).toEqual([4100, 14100, 18100])
   expect(events.every((e) => e.atMs === 120)).toBe(true)
-  now = 15100; value.advance(now)
+  now = 18100; value.advance(now)
   expect(value.snapshot().phase).toBe('waiting-stop')
-  value.confirmStopped(15200, 'phone'); value.present(15201); value.answer('14:03', 15300)
+  value.confirmStopped(18200, 'phone'); value.present(18201); value.answer('14:03', 18300)
   expect(value.snapshot().events.find((e) => e.type === 'stop-confirmed')?.action).toBe('phone')
   expect(taskRunSchema.parse(value.snapshot())).toEqual(value.snapshot())
   const collector = new TransferCollector({ sessionId: 'session', startedAt: '2026-10-19T00:00:00.000Z', startedAtMs: 0, timeOriginMs: 1000, userAgent: 'test' }, 5000)

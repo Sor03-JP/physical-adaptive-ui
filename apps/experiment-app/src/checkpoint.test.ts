@@ -17,7 +17,7 @@ it('keeps v11 files unchanged and restores old checkpoints without assuming the 
   const c = new TransferCollector(metadata, 5000)
   c.research.record({ kind: 'instruction', value: 'walking', controllerAtMs: 51, taskRunId: null, reportedPhase: null })
   const current = c.export()
-  expect(current.observationProtocol).toEqual({ method: 'post-task-confirmation', instructionTiming: { firstMs: 4000, secondMs: 11000 } })
+  expect(current.observationProtocol).toEqual({ method: 'post-task-confirmation', instructionTiming: { firstMs: 4000, secondMs: 14000 } })
   expect(current.research.events).toHaveLength(1)
   const { movementConfirmations: _movementConfirmations, observationProtocol: _protocol, ...previous } = current
   const old = { ...previous, version: 11 }
