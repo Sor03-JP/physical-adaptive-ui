@@ -1,8 +1,8 @@
 import { z } from 'zod'
 import type { MotionSample } from '@physical-adaptive/device-motion'
 
-// Memory/file guards for this measurement tool, not experiment duration settings.
-export const MAX_SAMPLES = 30_000
+// Allow roughly 17 minutes at 60 samples per second while bounding memory use.
+export const MAX_SAMPLES = 60_000
 export const BATCH_SIZE = 100
 export const MAX_FILE_BYTES = 20 * 1024 * 1024
 const finite = z.number().finite()

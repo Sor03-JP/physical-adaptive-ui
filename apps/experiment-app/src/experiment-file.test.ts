@@ -46,14 +46,15 @@ it('accepts an exported continuation bundle larger than the normal file limit', 
     acceleration: vector, accelerationIncludingGravity: vector,
     rotationRate: { alpha: vector.x, beta: vector.y, gamma: vector.z },
   }))
-  expect(root.receive(0, samples, 600000)).toBe(true)
-  root.updateStatus(samples.length, { endedAtMs: 600000, stopReason: 'capacity' })
+  const endedAtMs = samples.at(-1)!.receivedAtMs
+  expect(root.receive(0, samples, endedAtMs)).toBe(true)
+  root.updateStatus(samples.length, { endedAtMs, stopReason: 'capacity' })
   const original = root.export()
-  const context = prepareContinuation(original, '計測上限から続行', 600001, 'unused')
-  const resumed = new TransferCollector({ ...metadata, sessionId: 'resumed', timeOriginMs: 900000 }, 2000)
+  const context = prepareContinuation(original, '計測上限から続行', endedAtMs + 1, 'unused')
+  const resumed = new TransferCollector({ ...metadata, sessionId: 'resumed', timeOriginMs: metadata.timeOriginMs + endedAtMs + 1 }, 2000)
   resumed.continuation = context; resumed.management = structuredClone(context.management)
-  expect(resumed.receive(0, samples, 1200000)).toBe(true)
-  resumed.updateStatus(samples.length, { endedAtMs: 600000, stopReason: 'manual' })
+  expect(resumed.receive(0, samples, endedAtMs * 2 + 1)).toBe(true)
+  resumed.updateStatus(samples.length, { endedAtMs, stopReason: 'manual' })
   const records = [original, resumed.export()]
   const file = new File([writeExperimentFile(records)], 'continued.json')
   expect(file.size).toBeGreaterThan(MAX_FILE_BYTES)

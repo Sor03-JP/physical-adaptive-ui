@@ -41,7 +41,10 @@ describe('measurement recording', () => {
 
   it('retains the whole bounded recording instead of silently discarding old data', () => {
     const recorder = new MeasurementRecorder(metadata)
-    for (let i = 0; i <= MAX_SAMPLES; i++) recorder.append({ ...sample, receivedAtMs: 20 + i })
+    for (let i = 0; i <= MAX_SAMPLES; i++) {
+      recorder.append({ ...sample, receivedAtMs: 20 + i })
+      if (i === 29_999) expect(recorder.active).toBe(true)
+    }
     expect(recorder.active).toBe(false)
     const data = recorder.recording()
     expect(data.samples).toHaveLength(MAX_SAMPLES)
