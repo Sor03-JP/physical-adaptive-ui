@@ -30,7 +30,7 @@ export default function TaskController({ run, count, elapsedSeconds, disabled, p
         <p>「動作の案内」欄の予定を見ながら、参加者の動作を目視で確認してください。</p></>}
       {run.phase === 'waiting-stop' && <><p>情報は非表示です。急停止を求めず、立ち止まったことを目視確認してください。</p>
         <button className="primary" disabled={disabled || pending} onClick={onConfirmStopped}>静止を確認して回答画面へ</button></>}
-      {run.phase === 'answering' && <p>iPhoneで回答中です。回答または10秒の期限を待ってください。</p>}
+      {run.phase === 'answering' && <p>iPhoneで回答中です。そのままお待ちください。</p>}
     </> : <><p>開始位置へ戻り、次の課題を始める準備ができたら問題文を表示してください。</p>
       <button className="primary" disabled={!startAllowed || disabled || pending || count >= 100} onClick={() => onStart(taskId, mode)}>問題文を表示</button></>}
   </section>

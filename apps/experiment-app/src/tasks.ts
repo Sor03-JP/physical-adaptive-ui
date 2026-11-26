@@ -26,19 +26,20 @@ export class TransitTrial {
   private presentedUiKey = ''
 
   constructor(id: string, sessionId: string, taskId: TrialTaskId, requestedAtMs: number, mode: ExperimentMode = 'normal', {
-    kind = 'earliest-arrival', originalSessionId = sessionId, timing = kind === 'next-departure' ? previousTaskTiming : taskTiming,
+    kind = 'earliest-arrival', originalSessionId = sessionId, timing,
   }: { kind?: TaskRun['kind']; originalSessionId?: string; timing?: TaskRun['timing'] } = {}) {
     this.policy = new AdaptationPolicy(uiConfig)
-    const initial: Omit<TaskRun, 'kind' | 'problem'> = {
-      flow: 'briefing-first', id, sessionId, taskId, purpose: taskId === 'P1' ? 'practice' : 'main', mode, phase: 'briefing', timing: { ...timing },
+    const initial: Omit<TaskRun, 'kind' | 'problem' | 'timing'> = {
+      flow: 'briefing-first', id, sessionId, taskId, purpose: taskId === 'P1' ? 'practice' : 'main', mode, phase: 'briefing',
       requestedAtMs, briefingShownAtMs: null, beginRequestedAtMs: null, startedAtMs: null, hiddenAtMs: null,
       stopConfirmedAtMs: null, answerShownAtMs: null, endedAtMs: null, selectedTrainIndex: null,
       selectedAtMs: null, selectedShownAtMs: null, answer: null, outcome: null, abortReason: null, events: [],
       uiConfig: structuredClone(uiConfig), uiDecision: { decidedAtMs: requestedAtMs, estimateAtMs: null, inputState: 'unknown',
         state: 'stationary', reason: mode === 'normal' ? 'fixed' : 'initial', stale: false }, uiLog: [] }
     this.run = kind === 'earliest-arrival'
-      ? { ...initial, kind, problem: structuredClone(delayTaskForSession(taskId, originalSessionId)), openTrainIndex: null }
-      : { ...initial, kind, problem: structuredClone(transitTasks[taskId]) }
+      ? { ...initial, kind, timing: { ...(timing ?? taskTiming) }, problem: structuredClone(delayTaskForSession(taskId, originalSessionId)), openTrainIndex: null }
+      : { ...initial, kind, timing: { displayMs: timing?.displayMs ?? previousTaskTiming.displayMs, answerMs: timing?.answerMs ?? previousTaskTiming.answerMs },
+        problem: structuredClone(transitTasks[taskId]) }
   }
 
   get complete(): boolean { return this.run.phase === 'complete' || this.run.phase === 'aborted' }
@@ -116,8 +117,9 @@ export class TransitTrial {
       if (this.run.kind === 'earliest-arrival') this.run.openTrainIndex = null
       this.log('information-hidden', now, this.run.selectedTrainIndex === null ? {} : { trainIndex: this.run.selectedTrainIndex })
     }
-    if (this.run.phase === 'answering' && this.run.answerShownAtMs !== null
-      && now >= this.run.answerShownAtMs + this.run.timing.answerMs) {
+    const { answerMs } = this.run.timing
+    if (this.run.phase === 'answering' && this.run.answerShownAtMs !== null && answerMs !== null
+      && now >= this.run.answerShownAtMs + answerMs) {
       this.run.phase = 'complete'; this.run.outcome = 'unanswered'; this.run.endedAtMs = now
       this.log('answer-timeout', now)
     }

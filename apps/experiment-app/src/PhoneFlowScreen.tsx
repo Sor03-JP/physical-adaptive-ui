@@ -1,6 +1,5 @@
 import { useState } from 'react'
 import tutorialVideo from './assets/transit-tutorial.mp4'
-import { taskTiming } from './task-schema'
 import type { ReactNode } from 'react'
 import type { PhoneFlow } from './phone-flow'
 import type { phoneNextStep } from './phone-flow'
@@ -46,7 +45,7 @@ export default function PhoneFlowScreen({ flow, step, tasks, participantId, conn
         <h1>実験の説明・注意事項</h1>
         <dl className="consent-guide">
           <div><dt>最も早く着く便を選ぶ</dt><dd>今から乗れる3路線の便を、遅延を含めて比べます。詳細で到着見込みを確認し、最も早く着く便の「この便を選ぶ」を押してください。</dd></div>
-          <div><dt>立ち止まって回答する</dt><dd>問題文を理解してから候補を表示します。{taskTiming.displayMs / 1000}秒後に情報が消えます。実験者が停止を確認したら、到着時刻を4桁で{taskTiming.answerMs / 1000}秒以内に回答してください。不明なら「分からない」を選んでください。</dd></div>
+          <div><dt>立ち止まって回答する</dt><dd>実験者が停止を確認したら、到着時刻を4桁で回答してください。不明なら「分からない」を選んでください。</dd></div>
           <div><dt>音を合図に動作を切り替える</dt><dd>動作の順番は、各課題の問題文に表示します。早く選べた場合もその順番に従い、短い音で次の動作に切り替えてください。長い音が鳴ったら、安全に立ち止まってください。</dd></div>
         </dl>
         <section className="callout notice">
@@ -64,7 +63,7 @@ export default function PhoneFlowScreen({ flow, step, tasks, participantId, conn
         <h1>チュートリアル {flow.tutorialPage + 1}／3</h1>
         {flow.tutorialPage === 0 ? <>
           <p>一覧の時刻は定刻です。路線をタップして発車・到着見込みを確認し、「一覧に戻る」で他の路線を見比べます。詳細の「この便を選ぶ」で選択でき、選び直しもできます。</p>
-          <p>情報が消えたら、安全に立ち止まってください。実験者が停止を確認した後、到着時刻を4桁で回答します。例えば09:30は0930です。</p>
+          <p>情報が消えたら、安全に立ち止まってください。実験者が停止を確認したら、到着時刻を4桁で回答します。例えば09:30は0930です。回答に時間制限はありません。</p>
           <details className="tutorial-demo">
             <summary>操作例の動画を見る</summary>
             <video src={tutorialVideo} width={540} height={900} controls playsInline preload="none">

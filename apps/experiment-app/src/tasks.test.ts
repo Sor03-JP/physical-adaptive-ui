@@ -215,7 +215,9 @@ it('records detail navigation separately from final selection and keeps the 18-s
   trial.showDetails(2, 18099); trial.select(2, 18100)
   expect(trial.snapshot()).toMatchObject({ phase: 'waiting-stop', hiddenAtMs: 18100, openTrainIndex: null,
     selectedTrainIndex: 1, selectedAtMs: 410, selectedShownAtMs: 415 })
-  trial.confirmStopped(18200); trial.present(18220); trial.answer('10:46', 18400)
+  trial.confirmStopped(18200); trial.present(18220); trial.advance(30220)
+  expect(trial.snapshot()).toMatchObject({ phase: 'answering', timing: { displayMs: 18000, answerMs: null } })
+  trial.answer('10:46', 30300)
   const result = taskRunSchema.parse(trial.snapshot())
   expect(result).toMatchObject({ kind: 'earliest-arrival', phase: 'complete', outcome: 'correct', answer: '10:46' })
   expect(result.events.filter((event) => event.type === 'detail-opened').map((event) => event.trainIndex)).toEqual([1, 0, 1, 2])
@@ -224,6 +226,16 @@ it('records detail navigation separately from final selection and keeps the 18-s
   const collector = new TransferCollector(metadata, 5000)
   collector.updateTask(result)
   expect(readTransfer(writeTransfer(collector.export()))).toMatchObject({ tasks: [result] })
+})
+
+it('retains the 10-second answer deadline when continuing an earlier arrival task', () => {
+  const trial = preparedTrial('delay', 'session', 'A1', 0, 'automatic',
+    { kind: 'earliest-arrival', timing: { displayMs: 18000, answerMs: 10000 } })
+  trial.present(0); trial.advance(18000); trial.confirmStopped(18100); trial.present(18200)
+  trial.answer('10:46', 28200)
+  expect(taskRunSchema.parse(trial.snapshot())).toMatchObject({
+    phase: 'complete', answer: null, outcome: 'unanswered', timing: { displayMs: 18000, answerMs: 10000 },
+  })
 })
 
 it.each([

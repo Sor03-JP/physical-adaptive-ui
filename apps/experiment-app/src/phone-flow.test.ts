@@ -42,7 +42,7 @@ function session(group: Group = 'G1'): PhoneArchive {
       flow = { ...flow, confirmations: [...flow.confirmations, { taskRunId: task.id, status: 'as-planned', deviations: [], confirmedAtPhoneMs: now + 19000 }] }
       expect(task.startedAtMs! - task.beginRequestedAtMs!).toBe(1)
       expect(task.hiddenAtMs! - task.startedAtMs!).toBe(18000)
-      expect(task.timing.answerMs).toBe(10000)
+      expect(task.timing.answerMs).toBeNull()
       expect(task.events.find((e) => e.type === 'view-requested')?.action).toBe('phone-start-confirmed')
       expect(task.events.find((e) => e.type === 'stop-confirmed')?.action).toBe('phone')
     } else if (step.kind === 'survey') {
