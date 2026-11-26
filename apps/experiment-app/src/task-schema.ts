@@ -142,8 +142,8 @@ export function delayTaskForSession(taskId: TrialTaskId, sessionId: string): Del
   return delayProblemSchema.parse({ ...problem, trains })
 }
 
-export const taskTiming = Object.freeze({ displayMs: 18_000, answerMs: 10_000 })
-export const previousTaskTiming = Object.freeze({ ...taskTiming, displayMs: 15_000 })
+export const taskTiming = Object.freeze({ displayMs: 18_000, answerMs: null })
+export const previousTaskTiming = Object.freeze({ displayMs: 15_000, answerMs: 10_000 })
 export const taskInstructionTiming = Object.freeze({ firstMs: 4_000, secondMs: 14_000 })
 
 export function instructionTimingFor(displayMs: number) {
@@ -226,6 +226,7 @@ const practiceTaskBase = briefingTaskBase.extend({
 const routeIndex = z.int().min(0).max(2)
 const delayTaskRunBase = practiceTaskBase.extend({
   kind: z.literal('earliest-arrival'), problem: delayProblemSchema,
+  timing: practiceTaskBase.shape.timing.extend({ answerMs: z.number().positive().nullable() }),
   openTrainIndex: routeIndex.nullable(), selectedTrainIndex: routeIndex.nullable(),
 }).superRefine((run, context) => {
   if ((run.openTrainIndex !== null && run.phase !== 'viewing') || run.events.some((event) =>

@@ -44,8 +44,9 @@ export default function TransitTaskScreen({ run, onPresent, onAdvance, onShowDet
       fontSizePx: text ? Number.parseFloat(getComputedStyle(text).fontSize) : null,
       viewportHeightPx: window.innerHeight }, { phase: run.phase, decisionKey, selectedTrainIndex: run.selectedTrainIndex, openTrainIndex })
   }, [run.id, run.phase, run.selectedTrainIndex, decisionKey, openTrainIndex, onPresent])
-  const deadline = run.phase === 'viewing' && run.startedAtMs !== null ? run.startedAtMs + run.timing.displayMs
-    : run.phase === 'answering' && run.answerShownAtMs !== null ? run.answerShownAtMs + run.timing.answerMs : null
+  const { displayMs, answerMs } = run.timing
+  const deadline = run.phase === 'viewing' && run.startedAtMs !== null ? run.startedAtMs + displayMs
+    : run.phase === 'answering' && run.answerShownAtMs !== null && answerMs !== null ? run.answerShownAtMs + answerMs : null
   useEffect(() => {
     if (deadline === null) return
     const timer = window.setTimeout(onAdvance, Math.max(0, deadline - performance.now()))
@@ -127,7 +128,7 @@ export default function TransitTaskScreen({ run, onPresent, onAdvance, onShowDet
         {run.kind === 'earliest-arrival' && <p>一部の路線が遅延しています。一覧には定刻を表示します。詳細で到着見込みを比べて「この便を選ぶ」を押し、選んだ便の到着見込み時刻を覚えてください。</p>}
         <div className="callout">
           <strong>この課題の動作</strong>
-          <p>{movementPlanText(run.taskId, run.timing.displayMs)}</p>
+          <p>{movementPlanText(run.taskId, displayMs)}</p>
         </div>
         <p>中止したいときは、安全に立ち止まって実験者に伝えてください。</p>
         <p>{practice ? '問題を理解したら、下のボタンで練習を開始してください。' : '問題を理解できたら実験者にお知らせください。'}開始後に候補が表示されます。</p>
@@ -135,7 +136,7 @@ export default function TransitTaskScreen({ run, onPresent, onAdvance, onShowDet
     </div> : run.phase === 'answering' ? <>
       <h1>{practice && '練習：'}到着時刻を回答</h1>
       <p>{run.kind === 'earliest-arrival' ? '選んだ便の到着見込み時刻を' : '指定された行先へ次に発車する電車の到着時刻を'}
-        {run.timing.answerMs / 1000}秒以内に4桁で入力してください（例：09:30 → 0930）。</p>
+        {answerMs !== null && `${answerMs / 1000}秒以内に`}4桁で入力してください（例：09:30 → 0930）。</p>
       <div className="answer-pad">
         <div className="answer-display">
           <span>入力した到着時刻</span>
@@ -164,7 +165,7 @@ export default function TransitTaskScreen({ run, onPresent, onAdvance, onShowDet
       disabled={pending || run.briefingShownAtMs === null} onClick={onBegin}>実験者の開始状態の確認を受けて開始</button>}
     {practice && run.phase === 'briefing' && <>
       <p>{run.kind === 'earliest-arrival' ? '路線をタップすると詳細が開きます。「一覧に戻る」で比較でき、選び直しもできます。' : '行をタップすると選択でき、選び直せます。'}
-        {run.timing.displayMs / 1000}秒後に情報が消えたら、安全に立ち止まってから到着時刻を4桁で回答します。</p>
+        情報が消えたら、安全に立ち止まってから到着時刻を4桁で回答します。</p>
       <button className="primary" data-task-action="practice-begin" disabled={run.briefingShownAtMs === null} onClick={onPracticeBegin}>理解したので練習を開始</button>
     </>}
     {practice && run.phase === 'waiting-stop' && <button className="primary" data-task-action="practice-confirm" onClick={onPracticeConfirm}>立ち止まったので回答へ</button>}
