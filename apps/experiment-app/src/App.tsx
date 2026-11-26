@@ -1,20 +1,21 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import Controller from './Controller'
 import Sensor from './Sensor'
-import { joinSchema } from './protocol'
-import type { Identity } from './protocol'
+import { pageIdentity } from './protocol'
 
 export default function App() {
-  const [identity] = useState<Identity>(() => {
+  const [identity] = useState(() => pageIdentity(new URL(location.href)))
+  useEffect(() => {
+    if (identity?.role !== 'controller') return
     const url = new URL(location.href)
-    const room = url.searchParams.get('room') ?? (crypto.randomUUID?.().slice(0, 8) ?? Math.random().toString(36).slice(2, 10))
-    const role = url.searchParams.get('role') === 'sensor' ? 'sensor' : 'controller'
-    const result = joinSchema.safeParse({ room, role })
-    const value: Identity = result.success ? result.data : { role, room: (crypto.randomUUID?.().slice(0, 8) ?? Math.random().toString(36).slice(2, 10)) }
-    url.searchParams.set('role', value.role); url.searchParams.set('room', value.room)
-    history.replaceState(null, '', url)
-    return value
-  })
+    url.searchParams.set('role', identity.role)
+    url.searchParams.set('room', identity.room)
+    if (url.href !== location.href) history.replaceState(history.state, '', url)
+  }, [identity])
+  if (!identity) return <main className="phone-page">
+    <h1>接続コードを確認してください</h1>
+    <p role="alert">PCのコントローラーに表示されたiPhone用URLを、接続コードを含めて開き直してください。</p>
+  </main>
   const isController = identity.role === 'controller'
   return <main className={isController ? 'controller-page' : 'phone-page'}>
     <header className="app-header">

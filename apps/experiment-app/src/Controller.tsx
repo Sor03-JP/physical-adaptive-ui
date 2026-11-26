@@ -595,7 +595,7 @@ export default function Controller({ identity }: { identity: Identity }) {
       <p>センサー許可：{status?.permission ?? '未確認'} ／ 加速度3軸の受信確認：{status?.ready ? '準備済み' : '未完了'}</p>
       <p>iPhoneの受信イベント：{status?.receivedEventCount ?? 0}件 ／ 加速度3軸あり：{status?.validEventCount ?? 0}件</p>
       {presence.sensorUrls.map((url) => <p key={url}><a href={url}>iPhoneで開くURL：{url}</a></p>)}
-      {!presence.sensorUrls.length && <p>LAN公開で起動し、iPhoneでNetworkのHTTPS URLに「?role=sensor&amp;room={identity.room}」を付けて開いてください。</p>}
+      {!presence.sensorUrls.length && <p>LAN公開で起動し、iPhoneでNetworkのHTTPS URLに「?sensor={identity.room}」を付けて開いてください。</p>}
       {unavailable && collector.current && <p className="notice">通信が途切れています。既にPCで受信したデータは保持しています。iPhoneのページを閉じず、同じ接続コードで再接続してください。</p>}
     </section>
       <StoragePanel state={storage} phone={status?.storage ?? null} journal={storage.journal} />

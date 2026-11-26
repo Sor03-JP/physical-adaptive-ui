@@ -16,7 +16,7 @@ export function measurementRelay(): Plugin {
       const peers = [...members.values()].filter((member) => member.identity.room === room)
       const sensorUrls = (server.resolvedUrls?.network ?? []).map((base) => {
         const url = new URL(base)
-        url.searchParams.set('role', 'sensor'); url.searchParams.set('room', room)
+        url.searchParams.set('sensor', room)
         return url.toString()
       })
       for (const { response } of peers) send(response, 'presence', {

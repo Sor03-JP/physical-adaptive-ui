@@ -4,6 +4,7 @@ import { afterEach, expect, it } from 'vitest'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { PreviewServer, ViteDevServer } from 'vite'
 import { measurementRelay } from './relay'
+import { pageIdentity } from '../src/protocol'
 
 const cleanups: (() => void)[] = []
 afterEach(() => { cleanups.splice(0).forEach((close) => close()) })
@@ -44,7 +45,11 @@ function harness(preview = false) {
 }
 
 it.each([false, true])('isolates rooms and validates roles in development/preview (%s)', async (preview) => {
-  const h = harness(preview), pc = h.join('controller'), phone = h.join('sensor'), other = h.join('sensor', 'b')
+  const h = harness(preview), pc = h.join('controller', 'room-07')
+  const [link] = pc.events('presence').at(-1).sensorUrls
+  const identity = pageIdentity(new URL(link))
+  expect(identity).toEqual({ role: 'sensor', room: 'room-07' })
+  const phone = h.join(identity!.role, identity!.room), other = h.join('sensor', 'b')
   expect(await h.post(pc.client, { type: 'start', sessionId: 'one' })).toBe(204)
   expect(phone.events('message')).toEqual([{ type: 'start', sessionId: 'one', participant: null }])
   expect(other.events('message')).toEqual([])
@@ -62,7 +67,7 @@ it.each([false, true])('isolates rooms and validates roles in development/previe
 
 it('reconnects the same client, rejects duplicate roles, and only forwards to the replacement stream', async () => {
   const h = harness(), pc = h.join('controller'), phone = h.join('sensor')
-  expect(pc.events('presence').at(-1)).toMatchObject({ sensor: true, sensorUrls: ['https://192.168.1.10:5173/?role=sensor&room=a'] })
+  expect(pc.events('presence').at(-1)).toMatchObject({ sensor: true, sensorUrls: ['https://192.168.1.10:5173/?sensor=a'] })
   const duplicate = h.join('sensor')
   expect(duplicate.events('presence').at(-1).error).toContain('既に')
   const reconnected = h.join('sensor', 'a', phone.client)
@@ -74,6 +79,14 @@ it('reconnects the same client, rejects duplicate roles, and only forwards to th
   reconnected.res.destroy()
   expect(pc.events('presence').at(-1).sensor).toBe(false)
   expect(await h.post(phone.client, { type: 'stop', sessionId: 'one' })).toBe(409)
+})
+
+it('keeps an existing room and reports incomplete iPhone links without assigning a new room', () => {
+  const base = 'https://192.168.1.10:5173/'
+  expect(pageIdentity(new URL('?role=sensor&room=existing-room', base))).toEqual({ role: 'sensor', room: 'existing-room' })
+  expect(pageIdentity(new URL('?role=controller&room=existing-room', base))).toEqual({ role: 'controller', room: 'existing-room' })
+  expect(pageIdentity(new URL(base))).toMatchObject({ role: 'controller', room: expect.stringMatching(/^[a-f0-9]{8}$/) })
+  for (const query of ['?role=sensor', '?sensor=', '?sensor=wrong%20room']) expect(pageIdentity(new URL(query, base))).toBeNull()
 })
 
 it('rejects cross-site streams and closes blocked streams instead of retaining unbounded data', () => {

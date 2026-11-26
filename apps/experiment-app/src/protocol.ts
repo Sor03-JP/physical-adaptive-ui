@@ -12,6 +12,16 @@ export const joinSchema = z.strictObject({
   room: z.string().regex(/^[a-z0-9-]{1,40}$/), role: z.enum(['controller', 'sensor']),
 })
 export type Identity = z.infer<typeof joinSchema>
+
+export function pageIdentity(url: URL): Identity | null {
+  const sensorRoom = url.searchParams.get('sensor')
+  const role = sensorRoom !== null || url.searchParams.get('role') === 'sensor' ? 'sensor' : 'controller'
+  const result = joinSchema.safeParse({ role, room: sensorRoom ?? url.searchParams.get('room') })
+  if (result.success) return result.data
+  if (role === 'sensor') return null
+  return { role, room: Array.from(crypto.getRandomValues(new Uint8Array(4)), (byte) => byte.toString(16).padStart(2, '0')).join('') }
+}
+
 export const messageSchema = z.discriminatedUnion('type', [
   z.strictObject({ type: z.literal('start'), sessionId: z.string().min(1), participant: participantSchema.nullable().default(null), continuation: continuationSchema.optional(), autonomous: z.literal(true).optional() }),
   z.strictObject({ type: z.literal('phone-ack'), sessionId: z.string().min(1) }),
