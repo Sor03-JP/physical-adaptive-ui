@@ -11,6 +11,7 @@ import { readPhoneCheckpoint, phoneArchiveDigest, phoneArchiveSchema } from './p
 import type { PhoneArchive } from './phone-checkpoint'
 import type { Participant } from './management'
 import type { Continuation } from './continuation'
+import { continuedTaskId } from './continuation'
 import { assessableTasks, emptyManagement } from './management'
 import { estimationConfig } from './estimation'
 import TransitTaskScreen from './TransitTaskScreen'
@@ -103,7 +104,7 @@ export default function Sensor({ identity }: { identity: Identity }) {
       participant.current = recovered.current.participant
       continuation.current = recovered.current.continuation
       flow.current = recovered.current.phoneFlow; setPhoneFlow(flow.current)
-      setRecoveryMessage('更新前の保存データを復旧しました。計測は中断扱いです。PCでデータを回収し、「同じ参加者の続きから再開」または「実験を終了して保存」を選んでください。')
+      setRecoveryMessage('更新前の保存データを復旧しました。PCで中断した記録を確認してください。')
     },
   })
 
@@ -169,6 +170,11 @@ export default function Sensor({ identity }: { identity: Identity }) {
         if (message.digest === digest.current && message.attempt === transferAttempt.current) setTransferState(message.matched ? 'verified' : 'mismatch')
         return
       }
+      if (message.type === 'restart-phone' && message.sessionId === sessionId && flow.current && !recorder.current?.active) {
+        await restartOnPhone(message.nextSessionId)
+        report()
+        return
+      }
       const archive = recovered.current
       if (archive) {
         if ('sessionId' in message && message.sessionId === archive.metadata.sessionId) {
@@ -194,7 +200,7 @@ export default function Sensor({ identity }: { identity: Identity }) {
         participant.current = message.participant
         continuation.current = message.continuation
         if (message.autonomous) {
-          if (!message.participant || message.continuation) throw new Error('端末実験には参加者の割当が必要です。')
+          if (!message.participant) throw new Error('端末実験には参加者の割当が必要です。')
           updateFlow(createPhoneFlow(message.sessionId)); digest.current = null; setTransferState(''); setLinkConfirmed(false)
         }
         questionnaires.current = new QuestionnaireBook(message.continuation)
@@ -353,7 +359,8 @@ export default function Sensor({ identity }: { identity: Identity }) {
   function acceptConsent() {
     return localAction(() => {
       if (!recorder.current?.active || !flow.current || flow.current.stage !== 'consent' || !linkConfirmed || !connected || !controller || connectionDecision || !snapshot().ready) throw new Error('PCとの同期・センサーの準備を確認してください。')
-      updateFlow({ ...flow.current, consentedAtMs: performance.now(), stage: 'tutorial' })
+      const practiced = continuation.current?.tasks.some((task) => task.purpose === 'practice' && task.phase === 'complete')
+      updateFlow({ ...flow.current, consentedAtMs: performance.now(), stage: practiced ? 'experiment' : 'tutorial', tutorialPage: practiced ? 2 : 0 })
     })
   }
   function nextTutorialPage() {
@@ -377,12 +384,15 @@ export default function Sensor({ identity }: { identity: Identity }) {
     return localAction(() => {
       const current = recorder.current, plan = participant.current, state = flow.current
       if (!current?.active || !plan || state?.stage !== 'experiment') throw new Error('実験の開始・停止状態を確認してください。')
-      const step = phoneNextStep(plan, allTasks(), questionnaires.current.snapshot(), state)
-      if (step.kind === 'task') startTrial(crypto.randomUUID(), step.taskId, step.mode)
-      else if (step.kind === 'survey') {
-        const linkedIds = step.target === 'final' ? questionnaires.current.snapshot().filter((run) => run.target !== 'final' && run.phase === 'submitted').map((run) => run.id)
-          : conditionTaskIds(allTasks(), step.target)
-        questionnaires.current.open(crypto.randomUUID(), current.metadata.sessionId, step.target, linkedIds, performance.now(), allTasks())
+      const tasks = allTasks(), surveys = questionnaires.current.snapshot(), context = continuation.current
+      const step = phoneNextStep(plan, tasks, surveys, state, context)
+      if (step.kind === 'task') {
+        startTrial(continuedTaskId(context, tasks, step.taskId, step.mode) ?? crypto.randomUUID(), step.taskId, step.mode)
+      } else if (step.kind === 'survey') {
+        const eligible = assessableTasks([...(context?.tasks ?? []), ...tasks], context?.management ?? emptyManagement())
+        const linkedIds = step.target === 'final' ? [...(context?.questionnaires ?? []), ...surveys].filter((run) => run.target !== 'final' && run.phase === 'submitted').map((run) => run.id)
+          : conditionTaskIds(eligible, step.target)
+        questionnaires.current.open(crypto.randomUUID(), current.metadata.sessionId, step.target, linkedIds, performance.now(), eligible)
         renderSurvey()
       } else throw new Error('直前の課題・動作確認を終了してください。')
     })
@@ -409,7 +419,7 @@ export default function Sensor({ identity }: { identity: Identity }) {
       if (!flow.current || run?.phase !== 'submitted') return
       questionnaires.current.dismiss(); renderSurvey()
       if (run.target === 'final') {
-        if (!participant.current || phoneNextStep(participant.current, allTasks(), questionnaires.current.snapshot(), flow.current).kind !== 'done')
+        if (!participant.current || phoneNextStep(participant.current, allTasks(), questionnaires.current.snapshot(), flow.current, continuation.current).kind !== 'done')
           throw new Error('課題・アンケート・動作確認の完了を確認してください。')
         updateFlow({ ...flow.current, stage: 'transfer' }); finish('manual')
         await checkTransfer()
@@ -421,15 +431,15 @@ export default function Sensor({ identity }: { identity: Identity }) {
     if (flow.current?.stage === 'transfer') void localAction(checkTransfer)
     else report()
   }
-  async function restartOnPhone() {
-    if (!window.confirm('実験者に確認してください。今の記録を端末内に保管し、同じ参加者で説明・同意からやり直しますか？')) return
-    await localAction(async () => {
+  function restartOnPhone(nextSessionId: string) {
+    return localAction(async () => {
       const state = flow.current, plan = participant.current
       if (!state || !plan) throw new Error('やり直す参加者の設定が見つかりません。')
-      if (['consent', 'tutorial'].includes(state.stage) && (!connected || !controller || !linkConfirmed)) throw new Error('PCとの同期を確認してから、やり直しを選んでください。')
+      if (nextSessionId === state.sessionId) throw new Error('やり直し先の記録IDが一致しています。')
+      if (recorder.current?.active && (!connected || !controller || !linkConfirmed)) throw new Error('PCとの同期を確認してから、やり直しを選んでください。')
       finish('manual')
       await storage.archive()
-      const next = createPhoneFlow(crypto.randomUUID(), state.sessionId, state.stage === 'transfer' ? '転送完了前に全体のやり直しを選択' : '説明・練習中の通信切断または計測中断によるやり直し')
+      const next = createPhoneFlow(nextSessionId, state.sessionId, state.stage === 'transfer' ? '転送完了前に全体のやり直しを選択' : '説明・練習中の通信切断または計測中断によるやり直し')
       recorder.current = new MeasurementRecorder({ sessionId: next.sessionId, startedAt: new Date().toISOString(),
         startedAtMs: performance.now(), timeOriginMs: performance.timeOrigin, userAgent: navigator.userAgent }, estimationConfig)
       recovered.current = null; continuation.current = undefined; taskHistory.current.clear(); trial.current = null
@@ -515,7 +525,7 @@ export default function Sensor({ identity }: { identity: Identity }) {
     </div>
   const localActive = recorder.current?.active ?? false
   const localTasks = allTasks()
-  const localStep = phoneFlow && participant.current ? phoneNextStep(participant.current, localTasks, questionnaires.current.snapshot(), phoneFlow) : null
+  const localStep = phoneFlow && participant.current ? phoneNextStep(participant.current, localTasks, questionnaires.current.snapshot(), phoneFlow, continuation.current) : null
   const displayTask = taskRun && taskRun.id !== dismissedPracticeId && (!phoneFlow || (!recovered.current && localActive && !connectionDecision
     && ['tutorial', 'experiment'].includes(phoneFlow.stage) && !['complete', 'aborted'].includes(taskRun.phase)))
   const displaySurvey = survey && (!phoneFlow || (phoneFlow.stage === 'experiment' && localActive && !connectionDecision))
@@ -523,11 +533,13 @@ export default function Sensor({ identity }: { identity: Identity }) {
     {phoneFlow && !displayTask && !displaySurvey && <PhoneFlowScreen key={phoneFlow.sessionId} flow={phoneFlow} step={localStep} tasks={localTasks}
       participantId={participant.current?.participantId ?? ''} connected={connected && controller && linkConfirmed}
       interrupted={connectionDecision} recovered={!!recovered.current} stopped={!localActive} pending={localPending || pending}
+      resuming={continuation.current?.tasks.some((task) => task.purpose === 'practice' && task.phase === 'complete')}
       error={storage.error || error.current} transferState={transferState} audioControls={audioControls()}
       sensorReady={enabled.current && audioReady && streaming.current && events.current.valid > 0 && !document.hidden} onPrepare={() => void enable()}
       onAccept={() => void acceptConsent()} onTutorialNext={() => void nextTutorialPage()} onPractice={() => void localAction(startPractice)}
       onPracticeComplete={() => void localAction(closePractice)} onNext={() => void nextOnPhone()}
-      onReconnect={retryConnection} onResume={() => void continuePreparation()} onRestart={() => void restartOnPhone()}
+      onReconnect={retryConnection} onResume={() => void continuePreparation()}
+      onRestart={() => { if (window.confirm('今の記録を端末内に保管し、同じ参加者で説明・同意からやり直しますか？')) void restartOnPhone(crypto.randomUUID()) }}
       onConfirmMovement={(input) => void confirmMovementOnPhone(input)} />}
     {displaySurvey && survey && <QuestionnaireScreen key={survey.id} run={survey} onPresent={presentSurvey}
       error={storage.error || error.current} pending={localPending}

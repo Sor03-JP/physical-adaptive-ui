@@ -67,7 +67,7 @@ const legacyTransferBase = version2TransferBase.extend({
 })
 function validateTransfer(value: z.infer<typeof currentTransferBase> | z.infer<typeof version14TransferBase> | z.infer<typeof version13TransferBase> | z.infer<typeof version12TransferBase> | z.infer<typeof version11TransferBase> | z.infer<typeof version10TransferBase> | z.infer<typeof version9TransferBase> | z.infer<typeof version8TransferBase> | z.infer<typeof version7TransferBase> | z.infer<typeof version6TransferBase> | z.infer<typeof readableVersion5Base> | z.infer<typeof version4TransferBase> | z.infer<typeof version3TransferBase> | z.infer<typeof version2TransferBase> | z.infer<typeof legacyTransferBase>, context: z.RefinementCtx) {
   if ('phoneFlow' in value && value.phoneFlow && (!value.management.participant || !validPhoneFlow(value.phoneFlow, value.metadata.sessionId, value.tasks, value.metadata.startedAtMs, value.completion?.endedAtMs)
-    || (value.phoneFlow.stage === 'transfer' && (!value.completion || phoneNextStep(value.management.participant, value.tasks, value.questionnaires, value.phoneFlow).kind !== 'done'))))
+    || (value.phoneFlow.stage === 'transfer' && (!value.completion || phoneNextStep(value.management.participant, value.tasks, value.questionnaires, value.phoneFlow, value.continuation).kind !== 'done'))))
     context.addIssue({ code: 'custom', message: '端末内の進行記録と課題・参加者が一致しません。' })
   if (!hasValidSampleTimes(value.samples, value.metadata.startedAtMs, value.completion?.endedAtMs)) {
     context.addIssue({ code: 'custom', message: 'iPhone側の時刻が不整合です。' })
