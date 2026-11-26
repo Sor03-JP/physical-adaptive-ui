@@ -21,7 +21,7 @@ import { TransitTrial, canStartPractice, taskSnapshots } from './tasks'
 import type { ExperimentMode, PresentationMetrics, RenderedTaskContext } from './adaptation'
 import type { TaskRun, TrialTaskId } from './tasks'
 import type { SurveyRun } from './questionnaire'
-import { TaskAudio } from './task-audio'
+import { TaskAudio, taskCues } from './task-audio'
 import { createPhoneFlow, phoneFlowSchema, phoneNextStep } from './phone-flow'
 import type { PhoneFlow } from './phone-flow'
 import { phoneMovementConfirmationSchema, validMovementConfirmation } from './movement-confirmation'
@@ -498,16 +498,19 @@ export default function Sensor({ identity }: { identity: Identity }) {
     } catch (cause) { error.current = cause instanceof Error ? cause.message : '取得を開始できませんでした。' }
     finally { if (token === generation.current) setPending(false) }
   }
-  async function prepareAudio() {
-    try { await audio.current.prepare(); setAudioReady(true); error.current = '' }
+  async function previewAudio(kind: 'change' | 'finish') {
+    try { await audio.current.preview(kind); setAudioReady(true); error.current = '' }
     catch (cause) { setAudioReady(false); error.current = cause instanceof Error ? cause.message : '合図音を準備できませんでした。' }
     setStatus(error.current || '合図音を試聴しました。音量を確認してください。')
     send(snapshot())
   }
-  const audioControls = <div className="audio-check">
+  const audioControls = (hasChangeCue = true) => <div className="audio-check">
       <p><strong>合図音</strong> <span className={audioReady ? 'success' : 'notice'}>{audioReady ? '準備済み' : '未準備'}</span></p>
-      <p>短い音で次の動作に切り替え、長い音が鳴ったら安全に立ち止まってください。</p>
-      <button onClick={() => void prepareAudio()}>合図音を準備・試聴</button>
+      <p>{hasChangeCue ? '短い音で次の動作に切り替え、長い音が鳴ったら安全に立ち止まってください。' : '長い音が鳴るまで静止してください。'}</p>
+      <div className="mobile-actions">
+        {hasChangeCue && <button onClick={() => void previewAudio('change')}>短い音を試聴</button>}
+        <button onClick={() => void previewAudio('finish')}>長い音を試聴</button>
+      </div>
       {error.current && <p className="error" role="alert">{error.current}</p>}
     </div>
   const localActive = recorder.current?.active ?? false
@@ -520,7 +523,7 @@ export default function Sensor({ identity }: { identity: Identity }) {
     {phoneFlow && !displayTask && !displaySurvey && <PhoneFlowScreen key={phoneFlow.sessionId} flow={phoneFlow} step={localStep} tasks={localTasks}
       participantId={participant.current?.participantId ?? ''} connected={connected && controller && linkConfirmed}
       interrupted={connectionDecision} recovered={!!recovered.current} stopped={!localActive} pending={localPending || pending}
-      error={storage.error || error.current} transferState={transferState} audioControls={audioControls}
+      error={storage.error || error.current} transferState={transferState} audioControls={audioControls()}
       sensorReady={enabled.current && audioReady && streaming.current && events.current.valid > 0 && !document.hidden} onPrepare={() => void enable()}
       onAccept={() => void acceptConsent()} onTutorialNext={() => void nextTutorialPage()} onPractice={() => void localAction(startPractice)}
       onPracticeComplete={() => void localAction(closePractice)} onNext={() => void nextOnPhone()}
@@ -531,7 +534,7 @@ export default function Sensor({ identity }: { identity: Identity }) {
       onAnswer={(id, item, value) => { questionnaires.current.answer(id, item, value, performance.now()); renderSurvey(); report() }}
       onSubmit={(id) => void submitSurvey(id)} />}
     {!displaySurvey && displayTask && taskRun && <TransitTaskScreen key={taskRun.id} run={taskRun} onPresent={presentTask} onAdvance={advanceTask}
-      audioControls={audioControls}
+      audioControls={taskRun.phase === 'briefing' && audioControls(taskCues(taskRun).some((cue) => cue.kind === 'change'))}
       error={storage.error || error.current} pending={localPending}
       onBegin={phoneFlow ? () => void beginOnPhone() : undefined}
       onPracticeBegin={() => practiceAction('begin')} onPracticeConfirm={() => practiceAction('confirm')} onPracticeFinish={closePractice}
@@ -546,7 +549,7 @@ export default function Sensor({ identity }: { identity: Identity }) {
         recording={recorder.current?.active ?? false} stopped={!!recorder.current?.completion} recovered={!!recovered.current}
         practiceReady={practiceAvailable()} practiceFinished={dismissedPracticeId !== null || !!continuation.current?.tasks.some((t) => t.purpose === 'practice' && t.phase === 'complete')} resuming={!!continuation.current}
         onEnable={() => void enable()} onPractice={startPractice} />
-      {audioControls}
+      {audioControls()}
       {recoveryMessage && <p className="notice">{recoveryMessage}</p>}
       {storage.error && <p className="error" role="alert">{storage.error}</p>}
       {error.current && <p className="error" role="alert">{error.current}</p>}

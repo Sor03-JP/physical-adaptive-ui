@@ -12,6 +12,7 @@ export function taskCues(run: Pick<TaskRun, 'taskId' | 'timing'>) {
 export class TaskAudio {
   private context: AudioContext | null = null
   private activeId: string | null = null
+  private previewNode: OscillatorNode | null = null
   private pending: { node: OscillatorNode; trial: TransitTrial; kind: 'change' | 'finish'; plannedAtMs: number; endAtMs: number }[] = []
 
   get ready(): boolean { return this.context?.state === 'running' }
@@ -21,8 +22,12 @@ export class TaskAudio {
     this.context.onstatechange = () => { if (!this.ready) this.cancel('cue-unavailable') }
     await this.context.resume()
     if (!this.ready) throw new Error('合図音を準備できませんでした。iPhoneで音の準備をやり直してください。')
-    this.tone(this.context.currentTime, 'change')
-    this.tone(this.context.currentTime + 0.4, 'finish')
+  }
+
+  async preview(kind: 'change' | 'finish'): Promise<void> {
+    await this.prepare()
+    this.previewNode?.stop()
+    this.previewNode = this.tone(this.context!.currentTime, kind).node
   }
 
   private tone(at: number, kind: 'change' | 'finish') {
@@ -61,6 +66,8 @@ export class TaskAudio {
   }
 
   cancel(type: 'cue-cancelled' | 'cue-unavailable' = 'cue-cancelled'): void {
+    this.previewNode?.stop()
+    this.previewNode = null
     const now = performance.now()
     for (const cue of this.pending) if (cue.endAtMs > now) {
       cue.node.stop()
