@@ -4,7 +4,7 @@ import { TransitTrial, taskRunSchema } from './tasks'
 import { TransferCollector, readTransfer, writeTransfer } from './transfer'
 
 let now = 100
-const nodes: { start: ReturnType<typeof vi.fn>; stop: ReturnType<typeof vi.fn> }[] = []
+const nodes: { frequency: { value: number }; start: ReturnType<typeof vi.fn>; stop: ReturnType<typeof vi.fn> }[] = []
 const contexts: FakeAudioContext[] = []
 class FakeAudioContext {
   constructor() { contexts.push(this) }
@@ -34,6 +34,18 @@ it('uses only an end cue for stationary tasks and the same 4/14/18-second cues f
   expect(taskCues(trial('A1').snapshot())).toEqual([{ kind: 'finish', offsetMs: 18000 }])
   expect(taskCues(trial('A2').snapshot())).toEqual(taskCues(trial('A3').snapshot()))
   expect(taskCues(trial().snapshot()).map((c) => c.offsetMs)).toEqual([4000, 14000, 18000])
+})
+
+it('prepares silently and previews only the selected cue', async () => {
+  const audio = new TaskAudio()
+  await audio.prepare()
+  expect(nodes).toHaveLength(0)
+  await audio.preview('change')
+  expect(nodes.map((node) => node.frequency.value)).toEqual([880])
+  await audio.preview('finish')
+  expect(nodes.map((node) => node.frequency.value)).toEqual([880, 660])
+  expect(nodes[0].stop).toHaveBeenCalledTimes(2)
+  audio.close()
 })
 
 it('schedules once on the phone audio clock and retains requests, not claims of audible playback, in JSON', async () => {
