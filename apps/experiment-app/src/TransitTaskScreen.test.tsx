@@ -13,7 +13,7 @@ function preparedTrial(...args: ConstructorParameters<typeof TransitTrial>) {
 function render(trial: TransitTrial) {
   const noop = () => {}
   return renderToStaticMarkup(<TransitTaskScreen run={trial.snapshot()} onPresent={noop} onAdvance={noop} onShowDetails={noop}
-    onSelectTrain={noop} onAnswer={noop} onTap={noop} onStop={noop} />)
+    onSelectTrain={noop} onAnswer={noop} onTap={noop} />)
 }
 
 it('shows scheduled times in the list, expected times in details, and marks explicitly chosen routes', () => {
@@ -102,6 +102,7 @@ it('shows only the problem before PC start, and retains the same problem with ca
   expect(briefing).toContain('data-physical-state="stationary"')
   expect(briefing).toContain('18秒間、静止を維持')
   expect(briefing).toContain('実験者にお知らせください')
+  expect(briefing).toContain('中止したいときは、安全に立ち止まって実験者に伝えてください。')
   const noop = () => {}
   const controller = renderToStaticMarkup(<TaskController planned={{ taskId: 'A1', mode: trial.snapshot().mode }} startAllowed run={trial.snapshot()} count={1} elapsedSeconds={0}
     disabled={false} pending={false} onStart={noop} onBegin={noop} onConfirmStopped={noop} />)
@@ -112,6 +113,7 @@ it('shows only the problem before PC start, and retains the same problem with ca
   expect(candidates).toContain('南町駅に最も早く着く便')
   expect(candidates).toContain('10:25')
   expect(candidates).not.toContain('この課題の動作')
+  expect(candidates).not.toContain('>実験を中止</button>')
   expect(candidates.match(/data-task-action="route-open-\d"/g)).toHaveLength(3)
   expect(candidates).toContain('data-physical-state="running"')
 })

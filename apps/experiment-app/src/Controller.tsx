@@ -485,7 +485,7 @@ export default function Controller({ identity }: { identity: Identity }) {
         </dd></div>
         <div><dt>参加者</dt><dd>{participant?.participantId ?? '未選択'} <span className="recording-state" data-active={active || undefined}>{active ? '記録中' : recording ? '停止中' : '開始前'}</span></dd></div>
       </dl>
-      {active && <button className="stop-recording" disabled={!!panel.pending} onClick={stop}>中断して記録停止</button>}
+      {active && <button className="stop-recording" disabled={!!panel.pending} onClick={stop}>実験を中止</button>}
     </div>
     {[...new Set([presence.error, error, storage.error, status?.storage.error].filter(Boolean))].map((text) => <p className="error controller-alert" role="alert" key={text}>{text}</p>)}
     {unavailable && recording && <p className="notice controller-alert">通信が切れています。iPhoneの課題計測・合図音・端末内保存は続きます。画面を更新せず接続が戻るのを待つと、未受信データを回収します。</p>}
@@ -494,7 +494,9 @@ export default function Controller({ identity }: { identity: Identity }) {
     <div className="controller-workspace">
       <section className="experiment-current" aria-label="現在の操作">
         <h2>{waitingForPhone ? '保存記録を復旧・iPhoneの接続を確認中' : autonomous && active ? 'iPhoneで実験を進める' : progress.title}</h2>
-        {panel.pending && <p role="status">操作を送信しています。iPhoneの応答を待っています。</p>}
+        {panel.pending && <p role="status">{panel.pending === 'stop' && unavailable
+          ? '中止の反映を待っています。参加者の停止を確認し、iPhoneとの接続を戻してください。'
+          : '操作を送信しています。iPhoneの応答を待っています。'}</p>}
         {!recording ? <>
           {unavailable && <><p>iPhoneで同じ接続コードのURLを開き、センサーの利用を許可してください。</p>
             {presence.sensorUrls.map((url) => <p className="device-link" key={url}><a href={url}>{url}</a></p>)}</>}
@@ -579,6 +581,7 @@ export default function Controller({ identity }: { identity: Identity }) {
             <dt>課題3</dt><dd>{movementPlanText('A3', run?.timing.displayMs)}</dd>
           </dl>
           <p>事前にiPhoneで合図音を試聴し、音量を確認してください。動作の切替は短い音、候補表示の終了と停止は長い音が合図です。安全のために必要なときは声をかけてください。</p>
+          <p>中止の申し出があったら、参加者が安全に立ち止まったことを確認し、PCの「実験を中止」を押してください。</p>
           <p>開始時の姿勢と回答前の停止を目視で確認してください。本番では、停止を確認したらiPhoneで回答画面へ進み、回答後に動作が予定どおりだったかを記録します。</p>
         </section>
       </div>}

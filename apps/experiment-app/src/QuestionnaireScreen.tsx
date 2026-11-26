@@ -2,11 +2,11 @@ import { useLayoutEffect } from 'react'
 import { canSubmitSurvey, surveyTitle } from './questionnaire'
 import type { QuestionId, SurveyRun } from './questionnaire'
 
-export default function QuestionnaireScreen({ run, onPresent, onAnswer, onSubmit, onStop, error = '', pending = false }: {
+export default function QuestionnaireScreen({ run, onPresent, onAnswer, onSubmit, error = '', pending = false }: {
   run: SurveyRun; onPresent: (id: string) => void
   onAnswer: (id: string, item: QuestionId, value: number | string) => void
   onSubmit: (id: string) => void
-  onStop?: () => void; error?: string; pending?: boolean
+  error?: string; pending?: boolean
 }) {
   useLayoutEffect(() => { onPresent(run.id) }, [run.id, onPresent])
   const required = run.items.filter((item) => item.required)
@@ -33,7 +33,6 @@ export default function QuestionnaireScreen({ run, onPresent, onAnswer, onSubmit
         <button className="primary" type="submit" disabled={pending || !canSubmitSurvey(run)}>回答を送信</button>
         <p><small>未回答の項目がある間は送信できません。自由回答は空欄でも送信できます。</small></p>
       </form>}
-      {onStop && <footer className="mobile-footer"><button className="stop-recording" onClick={onStop}>実験を中止</button></footer>}
     </div>
   </div>
 }

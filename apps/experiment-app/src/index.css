@@ -171,7 +171,6 @@ body:has(.task-screen, .mobile-screen) { overflow: hidden; }
 }
 .mobile-meta > :first-child { color: var(--ink); font-weight: 700; }
 .mobile-actions { display: grid; gap: 10px; margin: 16px 0; }
-.mobile-footer { margin-top: 20px; padding-top: 12px; border-top: 1px solid var(--line); }
 .phone-flow-screen h1, .questionnaire-screen h1 { font-size: clamp(22px, 5vw, 28px); }
 .phone-flow-screen .mobile-content > button + button { margin-block-start: 8px; }
 .consent-guide { margin: 16px 0; }
@@ -244,7 +243,6 @@ body:has(.task-screen, .mobile-screen) { overflow: hidden; }
 .task-route-timeline small { display: block; font-size: 13px; font-weight: 400; }
 .task-route-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .task-route-actions > button { flex: 1 1 9em; }
-.task-screen .mobile-footer { flex-shrink: 0; margin-top: 12px; padding-top: 0; border: 0; }
 .answer-pad {
   margin-block: 14px 12px;
   padding: 8px;

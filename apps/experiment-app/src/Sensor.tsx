@@ -485,7 +485,6 @@ export default function Sensor({ identity }: { identity: Identity }) {
     trial.current?.confirmStopped(performance.now(), 'phone')
     renderTask(); report(); void storage.flush()
   }
-  function stopOnPhone() { finish('manual'); send(snapshot()); void storage.flush() }
   async function enable() {
     const token = ++generation.current
     setPending(true)
@@ -526,9 +525,9 @@ export default function Sensor({ identity }: { identity: Identity }) {
       onAccept={() => void acceptConsent()} onTutorialNext={() => void nextTutorialPage()} onPractice={() => void localAction(startPractice)}
       onPracticeComplete={() => void localAction(closePractice)} onNext={() => void nextOnPhone()}
       onReconnect={retryConnection} onResume={() => void continuePreparation()} onRestart={() => void restartOnPhone()}
-      onConfirmMovement={(input) => void confirmMovementOnPhone(input)} onStop={stopOnPhone} />}
+      onConfirmMovement={(input) => void confirmMovementOnPhone(input)} />}
     {displaySurvey && survey && <QuestionnaireScreen key={survey.id} run={survey} onPresent={presentSurvey}
-      error={storage.error || error.current} pending={localPending} onStop={phoneFlow ? stopOnPhone : undefined}
+      error={storage.error || error.current} pending={localPending}
       onAnswer={(id, item, value) => { questionnaires.current.answer(id, item, value, performance.now()); renderSurvey(); report() }}
       onSubmit={(id) => void submitSurvey(id)} />}
     {!displaySurvey && displayTask && taskRun && <TransitTaskScreen key={taskRun.id} run={taskRun} onPresent={presentTask} onAdvance={advanceTask}
@@ -540,8 +539,7 @@ export default function Sensor({ identity }: { identity: Identity }) {
       onShowDetails={(index) => { trial.current?.showDetails(index, performance.now()); renderTask(); report() }}
       onSelectTrain={(index) => { trial.current?.select(index, performance.now()); renderTask(); report() }}
       onAnswer={(value) => { trial.current?.answer(value, performance.now()); renderTask(); report(); void storage.flush() }}
-      onTap={(x, y, action) => { trial.current?.tap(performance.now(), x, y, action) }}
-      onStop={stopOnPhone} />}
+      onTap={(x, y, action) => { trial.current?.tap(performance.now(), x, y, action) }} />}
     {!phoneFlow && !survey && (!taskRun || taskRun.id === dismissedPracticeId) && <section className="phone-setup">
       <PhonePreparation connected={connected && controller} storageReady={storage.ready} storageError={storage.error}
         sensorReady={enabled.current && events.current.valid > 0 && !document.hidden} pending={pending}
@@ -560,7 +558,6 @@ export default function Sensor({ identity }: { identity: Identity }) {
         <p>記録は端末内にも順次保存します。データの確認・保存・出力はPCで行います。</p>
       </details>
       <p><small>画面を開いたままにし、再読み込みしないでください。</small></p>
-      <button className="stop-recording" onClick={() => { finish('manual'); send(snapshot()) }}>緊急停止</button>
     </section>}
   </section>
 }

@@ -5,7 +5,7 @@ import type { PresentationMetrics, RenderedTaskContext } from './adaptation'
 import type { TaskRun } from './tasks'
 import { movementPlanText } from './observation-plan'
 
-export default function TransitTaskScreen({ run, onPresent, onAdvance, onShowDetails, onSelectTrain, onAnswer, onTap, onStop, onPracticeBegin, onPracticeConfirm, onPracticeFinish, onConfirmStopped, audioControls, onBegin, error = '', pending = false }: {
+export default function TransitTaskScreen({ run, onPresent, onAdvance, onShowDetails, onSelectTrain, onAnswer, onTap, onPracticeBegin, onPracticeConfirm, onPracticeFinish, onConfirmStopped, audioControls, onBegin, error = '', pending = false }: {
   run: TaskRun
   onPresent: (metrics: PresentationMetrics, rendered: RenderedTaskContext) => void
   onAdvance: () => void
@@ -20,7 +20,6 @@ export default function TransitTaskScreen({ run, onPresent, onAdvance, onShowDet
   audioControls?: ReactNode
   onBegin?: () => void
   error?: string; pending?: boolean
-  onStop: () => void
 }) {
   const firstRow = useRef<HTMLButtonElement | null>(null)
   const detailArrival = useRef<HTMLElement | null>(null)
@@ -130,6 +129,7 @@ export default function TransitTaskScreen({ run, onPresent, onAdvance, onShowDet
           <strong>この課題の動作</strong>
           <p>{movementPlanText(run.taskId, run.timing.displayMs)}</p>
         </div>
+        <p>中止したいときは、安全に立ち止まって実験者に伝えてください。</p>
         <p>{practice ? '問題を理解したら、下のボタンで練習を開始してください。' : '問題を理解できたら実験者にお知らせください。'}開始後に候補が表示されます。</p>
       </>}
     </div> : run.phase === 'answering' ? <>
@@ -170,6 +170,5 @@ export default function TransitTaskScreen({ run, onPresent, onAdvance, onShowDet
     {practice && run.phase === 'waiting-stop' && <button className="primary" data-task-action="practice-confirm" onClick={onPracticeConfirm}>立ち止まったので回答へ</button>}
     {!practice && run.phase === 'waiting-stop' && <button className="primary" data-task-action="confirm-stopped" onClick={onConfirmStopped}>実験者用：停止を確認して回答へ</button>}
     {practice && ['complete', 'aborted'].includes(run.phase) && <button data-task-action="practice-finish" onClick={onPracticeFinish}>練習を閉じる</button>}
-    {!['complete', 'aborted'].includes(run.phase) && <footer className="mobile-footer"><button className="stop-recording" data-task-action="emergency-stop" onClick={onStop}>実験を中止</button></footer>}
   </div>
 }

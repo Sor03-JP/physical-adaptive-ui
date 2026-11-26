@@ -8,7 +8,7 @@ import TransitTaskScreen from './TransitTaskScreen'
 function render(trial: TransitTrial) {
   const noop = () => {}
   return renderToStaticMarkup(<TransitTaskScreen run={trial.snapshot()} onPresent={noop} onAdvance={noop} onShowDetails={noop}
-    onSelectTrain={noop} onAnswer={noop} onTap={noop} onStop={noop}
+    onSelectTrain={noop} onAnswer={noop} onTap={noop}
     onPracticeBegin={noop} onPracticeConfirm={noop} onPracticeFinish={noop} />)
 }
 function completedPractice(id = 'practice') {
