@@ -9,14 +9,13 @@ import type { MovementConfirmationInput } from './movement-confirmation'
 import MovementConfirmationPanel from './MovementConfirmationPanel'
 
 export default function PhoneFlowScreen({ flow, step, tasks, participantId, connected, interrupted, recovered, stopped, pending, error, transferState, audioControls, sensorReady, onPrepare,
-  onAccept, onTutorialNext, onPractice, onPracticeComplete, onNext, onReconnect, onResume, onRestart, onConfirmMovement, onStop }: {
+  onAccept, onTutorialNext, onPractice, onPracticeComplete, onNext, onReconnect, onResume, onRestart, onConfirmMovement }: {
   flow: PhoneFlow; step: ReturnType<typeof phoneNextStep> | null; tasks: TaskRun[]; participantId: string
   connected: boolean; interrupted: boolean; recovered: boolean; stopped: boolean; pending: boolean; error: string; transferState: string
   audioControls: ReactNode
   sensorReady: boolean; onPrepare: () => void
   onAccept: () => void; onTutorialNext: () => void; onPractice: () => void; onPracticeComplete: () => void; onNext: () => void
   onReconnect: () => void; onResume: () => void; onRestart: () => void; onConfirmMovement: (input: MovementConfirmationInput) => void
-  onStop: () => void
 }) {
   const [agreed, setAgreed] = useState(false)
   const practiceComplete = tasks.some((task) => task.purpose === 'practice' && task.phase === 'complete')
@@ -52,7 +51,7 @@ export default function PhoneFlowScreen({ flow, step, tasks, participantId, conn
         </dl>
         <section className="callout notice">
           <h2>安全を優先してください</h2>
-          <p>危険や体調不良を感じたとき、参加をやめたいときは実験者に伝え、いつでも中止できます。無理に操作する必要はありません。</p>
+          <p>危険や体調不良を感じたとき、参加をやめたいときは、安全に立ち止まり、すぐに実験者に伝えてください。実験はいつでも中止できます。</p>
         </section>
         <p><small>この画面を表示したままにし、画面のロックや再読み込みはしないでください。</small></p>
         {!sensorReady && <><p>センサー・合図音を準備してください。</p><button disabled={pending} onClick={onPrepare}>センサー利用を許可・準備</button></>}
@@ -104,7 +103,6 @@ export default function PhoneFlowScreen({ flow, step, tasks, participantId, conn
         <MovementConfirmationPanel tasks={tasks} history={flow.confirmations} disabled={pending} onSave={onConfirmMovement} />
       </>}
       {pending && <p role="status">保存・確認中です。この画面を開いたままお待ちください。</p>}
-      {!stopped && !transfer && <footer className="mobile-footer"><button className="stop-recording" onClick={onStop}>実験を中止</button></footer>}
     </div>
   </section>
 }
