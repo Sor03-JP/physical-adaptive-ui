@@ -4,6 +4,7 @@ import { nextStep, emptyManagement } from './management'
 import type { Participant } from './management'
 import type { TaskRun } from './task-schema'
 import type { SurveyRun } from './questionnaire'
+import type { Continuation } from './continuation'
 
 const time = z.number().finite().nonnegative()
 export const phoneFlowSchema = z.strictObject({
@@ -32,9 +33,10 @@ export function validPhoneFlow(flow: PhoneFlow, sessionId: string, tasks: readon
     && flow.confirmations.every((entry) => validMovementConfirmation(entry, tasks)
       && entry.confirmedAtPhoneMs >= tasks.find((task) => task.id === entry.taskRunId)!.endedAtMs!)
 }
-export function phoneNextStep(participant: Participant, tasks: readonly TaskRun[], surveys: readonly SurveyRun[], flow: PhoneFlow) {
+export function phoneNextStep(participant: Participant, tasks: readonly TaskRun[], surveys: readonly SurveyRun[], flow: PhoneFlow, continuation?: Continuation) {
   const pending = tasks.find((task) => task.purpose === 'main' && task.phase === 'complete'
     && !flow.confirmations.some((entry) => entry.taskRunId === task.id))
   if (pending) return { kind: 'confirmation' as const, task: pending }
-  return nextStep(participant, tasks, surveys, emptyManagement())
+  const previousTasks = continuation?.tasks.filter((task) => task.purpose !== 'practice' || task.phase === 'complete') ?? []
+  return nextStep(participant, [...previousTasks, ...tasks], [...(continuation?.questionnaires ?? []), ...surveys], continuation?.management ?? emptyManagement())
 }

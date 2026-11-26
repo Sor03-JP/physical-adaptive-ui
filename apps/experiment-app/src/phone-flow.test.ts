@@ -13,10 +13,12 @@ import { MeasurementRecorder } from './recording'
 import { estimationConfig } from './estimation'
 import { writeQuestionnaireCsv } from './questionnaire-csv'
 import type { LoadedCheckpoint } from './checkpoint'
+import { continuedTaskId, prepareContinuation } from './continuation'
+import { readExperimentFile, writeExperimentFile } from './experiment-file'
 
 const metadata = { sessionId: 'session', startedAt: '2026-11-13T00:00:00.000Z', timeOriginMs: 1000, startedAtMs: 10, userAgent: 'phone' }
-function complete(id: string, taskId: TrialTaskId, mode: 'normal' | 'automatic', now: number) {
-  const trial = new TransitTrial(id, metadata.sessionId, taskId, now, mode)
+function complete(id: string, taskId: TrialTaskId, mode: 'normal' | 'automatic', now: number, sessionId = metadata.sessionId) {
+  const trial = new TransitTrial(id, sessionId, taskId, now, mode, { originalSessionId: metadata.sessionId })
   trial.present(now + 1); trial.begin(now + 2, 'phone'); trial.present(now + 3)
   const target = targetTrainIndex(trial.snapshot().problem)
   trial.showDetails(target, now + 99); trial.select(target, now + 100); trial.present(now + 101)
@@ -66,6 +68,10 @@ function session(group: Group = 'G1'): PhoneArchive {
 function collectorFor(archive: PhoneArchive) {
   const collector = new TransferCollector(archive.metadata, 5000, archive.config)
   collector.setParticipant(archive.participant)
+  if (archive.continuation) {
+    collector.continuation = archive.continuation
+    collector.management = structuredClone(archive.continuation.management)
+  }
   // Last-task status arrives before the full history, so insertion order differs.
   collector.updateTask(archive.tasks.at(-1)!)
   archive.tasks.forEach((task) => collector.updateTask(task))
@@ -117,6 +123,57 @@ it('detects changed samples, answers, configuration and confirmations even with 
     const copy = structuredClone(archive); change(copy)
     expect(await phoneArchiveDigest(copy)).not.toBe(hash)
   }
+})
+
+it('resumes an interrupted phone task and exports both sessions with the submitted surveys and original clocks', async () => {
+  const base = session(), participant = base.participant!
+  const stopped = new TransitTrial('stopped', metadata.sessionId, 'B1', 120000, 'automatic')
+  stopped.abort(120001, 'page-hidden')
+  const oldTasks = base.tasks.filter((task) => task.purpose === 'practice' || task.mode === 'normal')
+  const oldSurveys = base.questionnaires.filter((run) => run.target === 'normal')
+  const oldArchive = phoneArchiveSchema.parse({
+    ...base, tasks: [...oldTasks, stopped.snapshot()], questionnaires: oldSurveys,
+    completion: { endedAtMs: 120001, stopReason: 'page-hidden' },
+    phoneFlow: { ...base.phoneFlow!, stage: 'experiment', confirmations: base.phoneFlow!.confirmations.slice(0, 3) },
+  })
+  const old = collectorFor(oldArchive)
+  old.receive(0, oldArchive.samples, 600); old.receiveEstimates(0, oldArchive.estimates)
+  expect(old.taskRuns[0].id).toBe('stopped')
+  const context = prepareContinuation(old.export(), 'iPhoneが非表示になった', 130000, 'retried-b1')
+  const newMetadata = { ...metadata, sessionId: 'resumed', timeOriginMs: 999000 }
+  let flow: PhoneFlow = { ...createPhoneFlow(newMetadata.sessionId), stage: 'experiment', tutorialPage: 2, syncedAtMs: 15, consentedAtMs: 20 }
+  const newTasks: TaskRun[] = []
+  const book = new QuestionnaireBook(context)
+  expect(phoneNextStep(participant, newTasks, [], flow, context)).toEqual({ kind: 'task', taskId: 'B1', mode: 'automatic' })
+  expect(continuedTaskId(context, newTasks, 'B1', 'automatic')).toBe('retried-b1')
+  expect(() => continuedTaskId(context, newTasks, 'B2', 'automatic')).toThrow('続行先が一致しません')
+  for (const [index, taskId] of (['B1', 'B2', 'B3'] as const).entries()) {
+    const task = complete(continuedTaskId(context, newTasks, taskId, 'automatic') ?? taskId, taskId, 'automatic', 30 + index * 20000, newMetadata.sessionId)
+    newTasks.push(task)
+    expect(phoneNextStep(participant, newTasks, [], flow, context)).toEqual({ kind: 'confirmation', task })
+    flow = { ...flow, confirmations: [...flow.confirmations, { taskRunId: task.id, status: 'as-planned', deviations: [], confirmedAtPhoneMs: task.endedAtMs! + 1 }] }
+  }
+  expect(phoneNextStep(participant, newTasks, [], flow, context)).toEqual({ kind: 'survey', target: 'automatic' })
+  book.open('automatic-after-resume', newMetadata.sessionId, 'automatic', conditionTaskIds(newTasks, 'automatic'), 60000, newTasks)
+  book.present('automatic-after-resume', 60001)
+  for (const item of book.active!.items.filter((item) => item.required)) book.answer('automatic-after-resume', item.id, item.choices[0]!.value, 60002)
+  book.submit('automatic-after-resume', 60003)
+  expect(phoneNextStep(participant, newTasks, book.snapshot(), flow, context)).toEqual({ kind: 'survey', target: 'final' })
+  book.open('final-after-resume', newMetadata.sessionId, 'final', [oldSurveys[0].id, 'automatic-after-resume'], 60004, newTasks)
+  book.present('final-after-resume', 60005)
+  book.answer('final-after-resume', 'comparison', book.active!.items[0]!.choices[0]!.value, 60006)
+  book.submit('final-after-resume', 60007)
+  expect(phoneNextStep(participant, newTasks, book.snapshot(), flow, context)).toEqual({ kind: 'done' })
+  const resumed = phoneArchiveSchema.parse({
+    ...base, metadata: newMetadata, continuation: context, tasks: newTasks, questionnaires: book.snapshot(),
+    completion: { endedAtMs: 60008, stopReason: 'manual' }, savedThroughMs: 60008,
+    phoneFlow: { ...flow, stage: 'transfer' },
+  })
+  const pc = collectorFor(resumed)
+  pc.receive(0, resumed.samples, 700); pc.receiveEstimates(0, resumed.estimates)
+  expect(await phoneTransferDigest(pc.export())).toBe(await phoneArchiveDigest(resumed))
+  const records = [old.export(), pc.export()]
+  expect(readExperimentFile(writeExperimentFile(records))).toEqual(records)
 })
 
 it('rejects consent, session, confirmation-clock and premature-transfer inconsistencies', () => {

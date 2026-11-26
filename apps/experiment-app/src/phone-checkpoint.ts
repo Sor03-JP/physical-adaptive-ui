@@ -31,7 +31,7 @@ export const phoneArchiveSchema = z.strictObject({
       [...(data.continuation?.questionnaires ?? []), ...data.questionnaires], [...(data.continuation?.tasks ?? []), ...data.tasks], data.continuation?.previousSessionIds))
     || (data.continuation && JSON.stringify(data.continuation.participant) !== JSON.stringify(data.participant))
     || (data.phoneFlow && (!data.participant || !validPhoneFlow(data.phoneFlow, data.metadata.sessionId, data.tasks, data.metadata.startedAtMs, data.completion?.endedAtMs ?? data.savedThroughMs)
-      || (data.phoneFlow.stage === 'transfer' && (!data.completion || phoneNextStep(data.participant, data.tasks, data.questionnaires, data.phoneFlow).kind !== 'done')))))
+      || (data.phoneFlow.stage === 'transfer' && (!data.completion || phoneNextStep(data.participant, data.tasks, data.questionnaires, data.phoneFlow, data.continuation).kind !== 'done')))))
     ctx.addIssue({ code: 'custom', message: 'iPhone保存データの時刻・計測IDが不整合です。' })
 })
 export type PhoneArchive = z.infer<typeof phoneArchiveSchema>

@@ -27,6 +27,7 @@ export const messageSchema = z.discriminatedUnion('type', [
   z.strictObject({ type: z.literal('phone-ack'), sessionId: z.string().min(1) }),
   z.strictObject({ type: z.literal('phone-transfer-result'), sessionId: z.string().min(1), digest: z.string().regex(/^[a-f0-9]{64}$/), attempt: z.int().nonnegative(), matched: z.boolean() }),
   z.strictObject({ type: z.literal('stop'), sessionId: z.string().min(1) }),
+  z.strictObject({ type: z.literal('restart-phone'), sessionId: z.string().min(1), nextSessionId: z.string().min(1) }),
   z.strictObject({ type: z.literal('pull-tasks'), sessionId: z.string().min(1) }),
   z.strictObject({ type: z.literal('task-history'), sessionId: z.string().min(1), tasks: z.array(taskRunSchema).max(100) }),
   z.strictObject({ type: z.literal('clear'), sessionId: z.string().min(1), forContinuation: z.literal(true).optional() }),

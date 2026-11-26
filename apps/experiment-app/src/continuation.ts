@@ -1,7 +1,9 @@
 import { z } from 'zod'
 import { managementSchema, participantSchema, nextStep } from './management'
 import { taskRunSchema } from './task-schema'
+import type { TaskRun } from './task-schema'
 import { surveyListSchema } from './questionnaire'
+import { pendingMovementConfirmations } from './movement-confirmation'
 import type { Transfer } from './transfer'
 
 export const continuationSchema = z.strictObject({
@@ -21,17 +23,19 @@ export const continuationSchema = z.strictObject({
 })
 export type Continuation = z.infer<typeof continuationSchema>
 export const continuationIntentSchema = z.strictObject({
-  sessionId: z.string().min(1), context: continuationSchema,
+  sessionId: z.string().min(1), context: continuationSchema, autonomous: z.literal(true).optional(),
 })
 export type ContinuationIntent = z.infer<typeof continuationIntentSchema>
 
 /** Retain original tasks and answers; only unfinished work becomes the next attempt. */
 export function prepareContinuation(data: Transfer, reason: string, now: number, newRunId: string): Continuation {
   if (!data.management.participant || (!data.complete && !data.recovery)) throw new Error('停止後のデータ回収を確認してから再開してください。')
+  if (data.phoneFlow && pendingMovementConfirmations(data.tasks, [...data.phoneFlow.confirmations, ...data.movementConfirmations]).length)
+    throw new Error('回答が終わった課題の動作確認を保存してから再開してください。')
   const tasks = [...(data.continuation?.tasks ?? []), ...data.tasks]
   const questionnaires = [...(data.continuation?.questionnaires ?? []), ...data.questionnaires.filter((s) => s.phase === 'submitted')]
   const management = structuredClone(data.management)
-  const latest = data.tasks.at(-1)
+  const latest = data.tasks.toSorted((a, b) => a.requestedAtMs - b.requestedAtMs).at(-1)
   const interrupted = latest?.purpose === 'main' && latest.phase !== 'complete' ? latest : null
   let resumeRunId = data.continuation?.resumeRunId ?? null
   if (interrupted) {
@@ -58,4 +62,13 @@ export function prepareContinuation(data: Transfer, reason: string, now: number,
   })
   if (nextStep(context.participant, tasks.filter((t) => t.purpose !== 'practice' || t.phase === 'complete'), questionnaires, management).kind === 'done') throw new Error('全課題が終了しています。データを保存して次の参加者へ進んでください。')
   return context
+}
+
+export function continuedTaskId(continuation: Continuation | undefined, tasks: readonly TaskRun[], taskId: TaskRun['taskId'], mode: TaskRun['mode']) {
+  const resumeRunId = continuation?.resumeRunId
+  if (!resumeRunId || tasks.some((task) => task.id === resumeRunId)) return null
+  const retry = continuation.management.retries.find((entry) => entry.retryRunId === resumeRunId)
+  const original = continuation.tasks.find((task) => task.id === retry?.originalRunId)
+  if (!original || original.taskId !== taskId || original.mode !== mode) throw new Error('中断した課題と続行先が一致しません。元の記録を保持して確認してください。')
+  return resumeRunId
 }

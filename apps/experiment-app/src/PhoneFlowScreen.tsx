@@ -7,20 +7,20 @@ import type { TaskRun } from './task-schema'
 import type { MovementConfirmationInput } from './movement-confirmation'
 import MovementConfirmationPanel from './MovementConfirmationPanel'
 
-export default function PhoneFlowScreen({ flow, step, tasks, participantId, connected, interrupted, recovered, stopped, pending, error, transferState, audioControls, sensorReady, onPrepare,
+export default function PhoneFlowScreen({ flow, step, tasks, participantId, connected, interrupted, recovered, stopped, resuming = false, pending, error, transferState, audioControls, sensorReady, onPrepare,
   onAccept, onTutorialNext, onPractice, onPracticeComplete, onNext, onReconnect, onResume, onRestart, onConfirmMovement }: {
   flow: PhoneFlow; step: ReturnType<typeof phoneNextStep> | null; tasks: TaskRun[]; participantId: string
-  connected: boolean; interrupted: boolean; recovered: boolean; stopped: boolean; pending: boolean; error: string; transferState: string
+  connected: boolean; interrupted: boolean; recovered: boolean; stopped: boolean; resuming?: boolean; pending: boolean; error: string; transferState: string
   audioControls: ReactNode
   sensorReady: boolean; onPrepare: () => void
   onAccept: () => void; onTutorialNext: () => void; onPractice: () => void; onPracticeComplete: () => void; onNext: () => void
   onReconnect: () => void; onResume: () => void; onRestart: () => void; onConfirmMovement: (input: MovementConfirmationInput) => void
 }) {
   const [agreed, setAgreed] = useState(false)
+  const [reconnectRequested, setReconnectRequested] = useState(false)
   const practiceComplete = tasks.some((task) => task.purpose === 'practice' && task.phase === 'complete')
   const transfer = flow.stage === 'transfer'
   const needsRecovery = recovered && !transfer
-  const restart = <button disabled={pending} onClick={onRestart}>実験者用：記録を残して最初からやり直す</button>
   return <section className="phone-flow-screen mobile-screen" aria-label="iPhoneの実験進行">
     <div className="mobile-content">
       <header className="mobile-meta">
@@ -29,8 +29,12 @@ export default function PhoneFlowScreen({ flow, step, tasks, participantId, conn
       </header>
       {error && <p className="error callout" role="alert">{error}</p>}
       {needsRecovery || (stopped && !transfer) ? <>
-        <h1>計測が中断しました</h1><p>保存できた記録は保持しています。実験者にお知らせください。この記録を回収するにはPCとの接続を戻してください。</p>
-        <button disabled={pending} onClick={onReconnect}>PCとの接続を確認する</button>{restart}
+        <h1>計測が中断しました</h1>
+        <p>保存済みの記録は保持しています。実験者にお知らせください。</p>
+        <p role="status">{connected ? 'PCとの接続を確認できました。実験者がPCで次の操作を行います。'
+          : reconnectRequested ? '再接続を確認中です。同じWi-Fiに接続し、この画面を開いたままお待ちください。'
+          : 'PCとの接続を待っています。同じWi-Fiに接続してください。'}</p>
+        {!connected && <button disabled={pending} onClick={() => { setReconnectRequested(true); onReconnect() }}>PCに再接続する</button>}
       </> : interrupted ? <>
         <h1>PCとの接続を確認してください</h1>
         <p>説明・練習中に接続が切れたため、進行を止めています。同じWi-Fiに接続し、この画面を閉じずにお待ちください。</p>
@@ -57,7 +61,7 @@ export default function PhoneFlowScreen({ flow, step, tasks, participantId, conn
         {!connected && <p role="status">PCとの最初の同期を確認しています。</p>}
         <div className="mobile-actions consent-actions">
           <label className="consent-choice"><input type="checkbox" name="experimentConsent" checked={agreed} onChange={(event) => setAgreed(event.currentTarget.checked)} />説明を理解し、参加に同意します。</label>
-          <button className="primary" disabled={!agreed || !connected || !sensorReady || pending} onClick={onAccept}>同意してチュートリアルへ</button>
+          <button className="primary" disabled={!agreed || !connected || !sensorReady || pending} onClick={onAccept}>{resuming ? '同意して実験の続きへ' : '同意してチュートリアルへ'}</button>
         </div>
       </> : flow.stage === 'tutorial' ? <>
         <h1>チュートリアル {flow.tutorialPage + 1}／3</h1>
@@ -85,10 +89,10 @@ export default function PhoneFlowScreen({ flow, step, tasks, participantId, conn
         <p>実験とアンケートの記録は、このiPhoneに保存しています。Macと同じWi-Fiに戻り、同じ接続コードのPC画面を開いてください。画面は更新せず、このままお待ちください。</p>
         <p role="status" className={transferState === 'verified' ? 'callout success' : 'callout'}>{transferState === 'verified' ? '実験者がPCでJSON・アンケートCSVを保存し、保存ファイルを確認します。案内をお待ちください。'
           : transferState === 'checking' ? '端末内の保存データを検証しています。'
-          : transferState === 'mismatch' ? 'PCとiPhoneの内容が一致しません。再接続して確認するか、元の記録を残してやり直してください。'
-          : transferState === 'error' ? '保存データの検証が完了していません。上のエラーを確認し、再接続・再確認するか、元の記録を残してやり直してください。'
+          : transferState === 'mismatch' ? 'PCとiPhoneの内容が一致しません。再接続して確認するか、実験者にお知らせください。'
+          : transferState === 'error' ? '保存データの検証が完了していません。再接続して確認するか、実験者にお知らせください。'
           : '接続が戻ると自動転送し、PCとiPhoneの記録内容を照合します。完了するまで端末の記録は残します。'}</p>
-        {transferState !== 'verified' && <><button className="primary" disabled={pending} onClick={onReconnect}>再接続して転送を確認</button>{restart}</>}
+        {transferState !== 'verified' && <button className="primary" disabled={pending} onClick={onReconnect}>再接続して転送を確認</button>}
       </> : <>
         <h1>本番の実験</h1>
         <p>ここからはPCとの通信が切れても、iPhoneで実験とアンケートを続けられます。</p>

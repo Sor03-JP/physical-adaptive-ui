@@ -5,7 +5,7 @@ import MovementConfirmationPanel from './MovementConfirmationPanel'
 import type { MovementConfirmationInput } from './movement-confirmation'
 import { pendingMovementConfirmations } from './movement-confirmation'
 import ContinuationPanel from './ContinuationPanel'
-import { prepareContinuation, continuationIntentSchema } from './continuation'
+import { prepareContinuation, continuationIntentSchema, continuedTaskId } from './continuation'
 import type { ContinuationIntent } from './continuation'
 import { readSetting, saveSetting } from './checkpoint'
 import { loadExperimentRecords, writeExperimentFile } from './experiment-file'
@@ -33,7 +33,7 @@ import { useMeasurementTransport } from './transport'
 import { MAX_SAMPLES } from './recording'
 import { TransferCollector, checkpointTransfer, phoneTransferDigest } from './transfer'
 
-type Command = Extract<Message, { type: 'start' | 'stop' | 'clear' | 'task-start' | 'task-begin' | 'task-answer' | 'survey-open' | 'task-abort' }>
+type Command = Extract<Message, { type: 'start' | 'stop' | 'restart-phone' | 'clear' | 'task-start' | 'task-begin' | 'task-answer' | 'survey-open' | 'task-abort' }>
 const panelAtom = atom({ phone: null as PhoneStatus | null, received: 0, estimates: 0, valid: 0, complete: false, pending: '' })
 const number = (value: number | null | undefined) => value == null ? '—' : value.toFixed(3)
 const seconds = (value: number) => (value / 1000).toFixed(1)
@@ -159,7 +159,7 @@ export default function Controller({ identity }: { identity: Identity }) {
       if (packet.error) {
         setError(packet.error)
         if (pending?.type === 'start' && metadata === null) command.current = null
-        if (pending?.type === 'task-abort' || pending?.type === 'survey-open' || pending?.type === 'task-start' || pending?.type === 'task-begin' || pending?.type === 'task-answer') command.current = null
+        if (pending?.type === 'restart-phone' || pending?.type === 'task-abort' || pending?.type === 'survey-open' || pending?.type === 'task-start' || pending?.type === 'task-begin' || pending?.type === 'task-answer') command.current = null
       }
     } else if (packet.type === 'task-history' && packet.sessionId === collector.current?.metadata.sessionId) {
       packet.tasks.forEach((task) => { if (collector.current!.updateTask(task)) verified.current = false })
@@ -238,7 +238,7 @@ export default function Controller({ identity }: { identity: Identity }) {
     const intent = continuationIntent.current
     if (intent && JSON.stringify(intent.context.participant) !== JSON.stringify(selectedParticipant)) { setError('続行する参加者が一致しません。'); return }
     command.current = { type: 'start', sessionId: intent?.sessionId ?? crypto.randomUUID(), participant: selectedParticipant,
-      ...(!intent ? { autonomous: true as const } : {}),
+      ...(!intent || intent.autonomous ? { autonomous: true as const } : {}),
       ...(intent ? { continuation: intent.context } : {}) }
     send(command.current); refresh()
   }
@@ -307,15 +307,11 @@ export default function Controller({ identity }: { identity: Identity }) {
       if (current.taskRuns.some((t) => t.purpose === 'main' && t.mode === mode && t.taskId === taskId)) { setError('同じ課題の再実施は、技術的不成立・再実施欄で記録してください。'); return }
     }
     setError(''); verified.current = false
-    const resumeRunId = current.continuation?.resumeRunId
-    const resuming = resumeRunId && !current.taskRuns.some((t) => t.id === resumeRunId)
-    if (resuming) {
-      const retry = current.management.retries.find((r) => r.retryRunId === resumeRunId)
-      const original = current.progressTaskRuns.find((t) => t.id === retry?.originalRunId)
-      if (!original || original.taskId !== taskId || original.mode !== mode) { setError('中断した課題と続行先が一致しません。元の記録を保持して確認してください。'); return }
-    }
-    command.current = { type: 'task-start', sessionId: current.metadata.sessionId, runId: resuming ? resumeRunId : crypto.randomUUID(), taskId, mode }
-    send(command.current); refresh()
+    try {
+      const runId = continuedTaskId(current.continuation, current.taskRuns, taskId, mode) ?? crypto.randomUUID()
+      command.current = { type: 'task-start', sessionId: current.metadata.sessionId, runId, taskId, mode }
+      send(command.current); refresh()
+    } catch (cause) { setError(cause instanceof Error ? cause.message : '続行先を確認できません。') }
   }
   function markFailure(failure: Omit<Failure, 'recordedAtControllerMs'>) {
     const current = collector.current
@@ -395,13 +391,20 @@ export default function Controller({ identity }: { identity: Identity }) {
       const context = prepareContinuation(current.export(), reason, controllerNow(), crypto.randomUUID())
       current.management = structuredClone(context.management); verified.current = false
       if (!await storage.flush()) throw new Error('元の記録を端末内に保存できませんでした。記録は保持しています。')
-      const intent = { sessionId: crypto.randomUUID(), context }
+      const intent = { sessionId: crypto.randomUUID(), context, ...(autonomous ? { autonomous: true as const } : {}) }
       await saveSetting(`continuation:${identity.room}`, intent)
       continuationIntent.current = intent
       command.current = { type: 'clear', sessionId: current.metadata.sessionId, forContinuation: true }
       setError(''); send(command.current); refresh()
     } catch (cause) { setError(cause instanceof Error ? cause.message : '続行を準備できませんでした。元の記録は保持しています。') }
     finally { setContinuing(false) }
+  }
+  function restartParticipant() {
+    const current = collector.current
+    if (!current || !canRestart || command.current) return
+    if (!window.confirm('本人の同意を確認しましたか？ 両端末に元の記録を保管し、同じ参加者で説明・同意からやり直します。')) return
+    command.current = { type: 'restart-phone', sessionId: current.metadata.sessionId, nextSessionId: crypto.randomUUID() }
+    setError(''); send(command.current); refresh()
   }
   function outputRecords() {
     if (!collector.current) throw new Error('記録がありません。')
@@ -453,12 +456,19 @@ export default function Controller({ identity }: { identity: Identity }) {
   const recovery = !!collector.current?.recovery
   const run = status?.taskRun ?? null
   const autonomous = !!status?.phoneFlow
+  const transferring = status?.phoneFlow?.stage === 'transfer'
+  const technicalStop = status?.completion?.stopReason != null && status.completion.stopReason !== 'manual'
   const taskElapsedMs = run?.startedAtMs != null ? (status?.metadata?.startedAtMs ?? 0) + (status?.elapsedMs ?? 0) - run.startedAtMs : 0
   const progress = experimentProgress({ recording, active, recovery, participant, step, run })
   const ready = !unavailable && !!status?.ready && storage.ready && !storage.error && !!status?.storage.ready && !status.storage.error
   const unconfirmedTasks = pendingMovementConfirmations(taskRuns, confirmations)
   const taskDisabled = unconfirmedTasks.length > 0 || taskBlocked()
-  const canContinue = !autonomous && !active && !continuationIntent.current && clearBlockers(true).length === 0
+  const showContinue = !active && step?.kind !== 'done' && (!autonomous || (!transferring && technicalStop))
+  const canContinue = showContinue && !continuationIntent.current && clearBlockers(true).length === 0
+  const showRestart = autonomous && !active && (!transferring || transferProof.current?.matched === false)
+  const canRestart = showRestart && !unavailable && !reading && !continuing && !panel.pending && !continuationIntent.current
+    && storage.ready && !storage.error && !!status?.storage.ready && !status.storage.error
+  const pendingRecoveryConfirmations = autonomous && !active && !transferring ? collector.current?.unconfirmedTaskRuns ?? [] : []
   const clearReasons = clearBlockers()
   const canClear = clearReasons.length === 0
   const nextParticipantBlockers = [
@@ -526,13 +536,14 @@ export default function Controller({ identity }: { identity: Identity }) {
             {active ? <><p>両条件とアンケートが終了しました。センサー記録を停止してから、保存へ進みます。</p>
               <button className="primary" disabled={!!panel.pending} onClick={stop}>記録を停止して保存へ</button></>
               : <>
-                <p>受信件数：iPhone {status?.count ?? 0} ／ PC {panel.received} 件</p>
-                {autonomous && <p role="status">{transferProof.current?.matched === true ? 'iPhoneとPCの記録内容の一致を確認しました。JSONとアンケートCSVを保存してください。' : 'iPhoneの全記録を回収し、内容を照合しています。iPhoneの画面を開いたままお待ちください。'}</p>}
+                <p>今回の計測の受信件数：iPhone {status?.count ?? 0} 件 ／ PC {panel.received} 件</p>
+                {collector.current?.continuation && <p>ダウンロードするJSONには、中断前の計測も含まれます。</p>}
+                {transferring && <p role="status">{transferProof.current?.matched === true ? 'iPhoneとPCの記録内容の一致を確認しました。JSONとアンケートCSVを保存してください。' : 'iPhoneの全記録を回収し、内容を照合しています。iPhoneの画面を開いたままお待ちください。'}</p>}
                 {!panel.complete && <p className="notice">未受信または途中のデータがあります。回収状況を確認してください。途中データも出力できます。</p>}
                 {step?.kind !== 'done' && <p className="notice">全課題・アンケートが終了した記録ではありません。中断した内容を確認して保存してください。</p>}
-                {!autonomous && participant && step?.kind !== 'done' && <ContinuationPanel participantId={participant.participantId}
+                {showContinue && participant && <ContinuationPanel key={collector.current?.metadata.sessionId} participantId={participant.participantId}
                   disabled={!canContinue || continuing} onContinue={(reason) => void continueParticipant(reason)} />}
-                {collector.current?.continuation && <p>今回の記録と、続行元の記録をまとめて1つのJSONに保存します。</p>}
+                {showRestart && <button disabled={!canRestart} onClick={restartParticipant}>記録を残して最初からやり直す</button>}
                 <ol className="save-steps">
                   <li className="save-step">
                     <h3>実験データをPCに保存する</h3>
@@ -562,8 +573,8 @@ export default function Controller({ identity }: { identity: Identity }) {
               </>}
           </>}
         </>}
-        {recording && !autonomous && <MovementConfirmationPanel tasks={taskRuns} history={confirmations}
-          disabled={!storage.ready || !!storage.error || reading || !!panel.pending || (run != null && !['complete', 'aborted'].includes(run.phase))}
+        {recording && (!autonomous || pendingRecoveryConfirmations.length > 0) && <MovementConfirmationPanel tasks={autonomous ? pendingRecoveryConfirmations : taskRuns} history={confirmations}
+          disabled={!storage.ready || !!storage.error || reading || !!panel.pending || (active && run != null && !['complete', 'aborted'].includes(run.phase))}
           onSave={(input) => void confirmMovement(input)} />}
         {message && <p className="success" role="status">{message}</p>}
       </section>
